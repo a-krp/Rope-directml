@@ -25,16 +25,20 @@ Rope implements the insightface inswapper_128 model with a helpful GUI.
 * (experimental) Mouth parser. Another occlusion tool just for the mouth area. Improves dialogue and lip sync, but will replace the Source Face mouth.
 * Bug fixes
 
-### Performance (3090Ti 24GB): ###
-| File | Rendering Time [s] |
-| --- | --- |
-| target-240p.mp4 | 2.9 |
-| target-360p.mp4 | 3 |
-| target-540p.mp4 | 3.4 |
-| target-720p.mp4 | 7 |
-| target-1080p.mp4 | 9.6 |
-| target-1440p.mp4 | 13.9 |
-| target-2160p.mp4 | 24.7 |
+### Clean Install
+* Copy Github files to a local directory
+* Navigate to the Rope main directory (you will see requirements.txt, Rope.bat, Rope.py, and two folders)
+* Right click and select 'Open in Terminal' (or open CMD and navigate there)
+* Set up a local venv
+  * python.exe -m venv venv
+* Activate your new venv
+  * .\venv\Scripts\activate
+* Install requirements
+  * .\venv\Scripts\pip.exe install -r .\requirements.txt
+* Place [GFPGANv1.4.onnx](https://github.com/Hillobar/Rope/releases/download/Space_Worm/GFPGANv1.4.onnx), [inswapper_128_fp16.onnx](https://github.com/Hillobar/Rope/releases/download/Space_Worm/inswapper_128.fp16.onnx), [occluder.ckpt](https://github.com/Hillobar/Rope/releases/download/Space_Worm/occluder.ckpt), [79999_iter.pth](https://github.com/Hillobar/Rope/releases/download/Crystal/79999_iter.pth), and [epoch_16_best.ckpt](https://github.com/Hillobar/Rope/releases/download/Crystal/epoch_16_best.ckpt) in the models\ folder
+* Do this if you've never installed roop or Rope (or any other onnx runtimes):
+  * Install FFMPEG
+* Double-click on Rope.bat!
 
 ### Known bugs: ### 
 * Stop video playback before loading a new video, or bork

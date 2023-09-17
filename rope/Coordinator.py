@@ -10,6 +10,7 @@ import onnxruntime
 import onnx
 
 import torch
+import torch_directml
 from rope.external.clipseg import CLIPDensePredT
 
 import segmentation_models_pytorch as smp
@@ -167,7 +168,7 @@ def coordinator():
     # print(time.time() - start)    
     
 def load_faceapp_model():
-    app = FaceAnalysis(name='buffalo_l')
+    app = FaceAnalysis(name='buffalo_l',providers=["DmlExecutionProvider"])
     app.prepare(ctx_id=0, det_size=(640, 640))
     return app
 
@@ -182,14 +183,14 @@ def load_swapper_model():
     opts = onnxruntime.SessionOptions()
     # opts.enable_profiling = True
     opts.enable_cpu_mem_arena = False
-    return onnxruntime.InferenceSession( "./models/inswapper_128.fp16.onnx", opts, providers=["CUDAExecutionProvider"]), emap
+    return onnxruntime.InferenceSession( "./models/inswapper_128.fp16.onnx", opts, providers=["DmlExecutionProvider"]), emap
     
 def load_clip_model():
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch_directml.device()
     print(f"Using device: {device}")    
     clip_session = CLIPDensePredT(version='ViT-B/16', reduce_dim=64, complex_trans_conv=True)
     clip_session.eval();
-    clip_session.load_state_dict(torch.load('./models/rd64-uni-refined.pth', map_location=torch.device('cuda')), strict=False) 
+    clip_session.load_state_dict(torch.load('./models/rd64-uni-refined.pth', map_location=torch.device('cpu')), strict=False) 
     clip_session.to(device)    
     return clip_session, device
 
@@ -198,29 +199,31 @@ def load_GFPGAN_model():
     opts = onnxruntime.SessionOptions()
     # opts.enable_profiling = True
     opts.enable_cpu_mem_arena = False
-    GFPGAN_session = onnxruntime.InferenceSession( "./models/GFPGANv1.4.onnx", providers=["CUDAExecutionProvider"])
+    GFPGAN_session = onnxruntime.InferenceSession( "./models/GFPGANv1.4.onnx", providers=["DmlExecutionProvider"])
     return GFPGAN_session
     
 def load_occluder_model():            
     to_tensor = transforms.ToTensor()
+    device = torch_directml.device()
     model = smp.Unet(encoder_name='resnet18', encoder_weights='imagenet', classes=1, activation=None)
 
-    weights = torch.load('./models/occluder.ckpt')
+    weights = torch.load('./models/occluder.ckpt', map_location=torch.device('cpu'))
     new_weights = OrderedDict()
     for key in weights.keys():
         new_key = '.'.join(key.split('.')[1:])
         new_weights[new_key] = weights[key]
 
     model.load_state_dict(new_weights)
-    model.to('cuda')
+    model.to(device)
     model.eval()
     return model, to_tensor  
 
-def load_face_parser_model():    
+def load_face_parser_model():  
+    device = torch_directml.device()  
     n_classes = 19
     model = BiSeNet(n_classes=n_classes)
-    model.cuda()
-    model.load_state_dict(torch.load("./models/79999_iter.pth"))
+    model.load_state_dict(torch.load("./models/79999_iter.pth", map_location=torch.device('cpu')))
+    model.to(device)
     model.eval()
 
     to_tensor = transforms.Compose([

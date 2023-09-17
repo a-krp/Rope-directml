@@ -12,6 +12,7 @@ import subprocess
 from math import floor, ceil
 
 import torch
+import torch_directml
 import requests
 from PIL import Image
 from torchvision import transforms
@@ -512,7 +513,7 @@ class VideoManager():
             io_binding = self.swapper_model.io_binding()            
             io_binding.bind_cpu_input(self.input_names[0], blob)
             io_binding.bind_cpu_input(self.input_names[1], latent)
-            io_binding.bind_output(self.output_names[0], "cuda")
+            io_binding.bind_output(self.output_names[0], "cpu")
                
             self.swapper_model.run_with_iobinding(io_binding)
             ort_outs = io_binding.copy_outputs_to_cpu()
@@ -622,8 +623,9 @@ class VideoManager():
 
  
     def apply_occlusion(self, img):
+        device = torch_directml.device()
         data = self.occluder_tensor(img).unsqueeze(0)
-        data = data.to('cuda')
+        data = data.to(device)
         with lock:
             with torch.no_grad():
                 pred = self.occluder_model(data)
@@ -658,12 +660,12 @@ class VideoManager():
 
         # atts = [1 'skin', 2 'l_brow', 3 'r_brow', 4 'l_eye', 5 'r_eye', 6 'eye_g', 7 'l_ear', 8 'r_ear', 9 'ear_r', 10 'nose', 11 'mouth', 12 'u_lip', 13 'l_lip', 14 'neck', 15 'neck_l', 16 'cloth', 17 'hair', 18 'hat']
 
-        
+        device = torch_directml.device()
         with lock:
             with torch.no_grad():
                 img1 = self.face_parsing_tensor(img.astype(np.uint8))
                 img1 = torch.unsqueeze(img1, 0)
-                img1 = img1.cuda()
+                img1 = img1.to(device)
                 out = self.face_parsing_model(img1)[0]
                 parsing = out.squeeze(0).cpu().numpy().argmax(0)
 
@@ -687,7 +689,7 @@ class VideoManager():
             with torch.no_grad():
                 img1 = self.face_parsing_tensor(img)
                 img1 = torch.unsqueeze(img1, 0)
-                img1 = img1.cuda()
+                # img1 = img1.cuda()
                 out = self.face_parsing_model(img1)[0]
                 parsing = out.squeeze(0).cpu().numpy().argmax(0)
 
@@ -720,7 +722,7 @@ class VideoManager():
         if self.io_binding:
             io_binding = self.GFPGAN_model.io_binding()            
             io_binding.bind_cpu_input("input", temp)
-            io_binding.bind_output("1288", "cuda")
+            io_binding.bind_output("1288", "cpu")
                
             self.GFPGAN_model.run_with_iobinding(io_binding)
             ort_outs = io_binding.copy_outputs_to_cpu()

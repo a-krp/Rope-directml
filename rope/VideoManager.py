@@ -599,7 +599,7 @@ class VideoManager():
             io_binding = self.swapper_model.io_binding()            
             io_binding.bind_cpu_input(self.input_names[0], blob)
             io_binding.bind_cpu_input(self.input_names[1], latent)
-            io_binding.bind_output(self.output_names[0], "cuda")
+            io_binding.bind_output(self.output_names[0])
                
             self.swapper_model.run_with_iobinding(io_binding)
             ort_outs = io_binding.copy_outputs_to_cpu()
@@ -731,7 +731,7 @@ class VideoManager():
         if self.io_binding: 
             io_binding = self.occluder_model.io_binding()            
             io_binding.bind_cpu_input('img', img)
-            io_binding.bind_output('output', "cuda")
+            io_binding.bind_output('output')
                
             self.occluder_model.run_with_iobinding(io_binding)
             output = io_binding.copy_outputs_to_cpu()[0][0]
@@ -843,7 +843,7 @@ class VideoManager():
         if self.io_binding:
             io_binding = self.GFPGAN_model.io_binding()            
             io_binding.bind_cpu_input("input", temp)
-            io_binding.bind_output("1288", "cuda")
+            io_binding.bind_output("1288")
                
             self.GFPGAN_model.run_with_iobinding(io_binding)
             ort_outs = io_binding.copy_outputs_to_cpu()
@@ -893,7 +893,7 @@ class VideoManager():
             io_binding = self.codeformer_model.io_binding()            
             io_binding.bind_cpu_input('x', img)
             io_binding.bind_cpu_input('w', w)
-            io_binding.bind_output('y', "cuda")
+            io_binding.bind_output('y')
                
             self.codeformer_model.run_with_iobinding(io_binding)
             output = io_binding.copy_outputs_to_cpu()[0][0]

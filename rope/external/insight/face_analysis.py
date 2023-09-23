@@ -26,10 +26,10 @@ class FaceAnalysis:
         onnxruntime.set_default_logger_severity(4)
         self.models = {}
 
-        session = onnxruntime.InferenceSession('.\models\det_10g.onnx', providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+        session = onnxruntime.InferenceSession('.\models\det_10g.onnx', providers=['DmlExecutionProvider', 'CPUExecutionProvider'])
         self.models['detection'] = RetinaFace('.\models\det_10g.onnx', session=session)
 
-        session = onnxruntime.InferenceSession('.\models\w600k_r50.onnx', providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+        session = onnxruntime.InferenceSession('.\models\w600k_r50.onnx', providers=['DmlExecutionProvider', 'CPUExecutionProvider'])
         self.models['recognition'] = ArcFaceONNX('.\models\w600k_r50.onnx', session=session)       
 
         assert 'detection' in self.models

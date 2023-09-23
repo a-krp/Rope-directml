@@ -724,11 +724,15 @@ class GUI(tk.Tk):
                         else:
                             padding = int((x_diff - y_diff) / 2)
                             crop = cv2.copyMakeBorder( crop, padding, padding, 0, 0, cv2.BORDER_CONSTANT )
-                                    
-                        crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)            
-                        crop = cv2.resize( crop, (82, 82))
-                        temp = [crop, ret[0].embedding]
-                        faces.append(temp)
+
+                        try:       
+                            crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)            
+                            crop = cv2.resize( crop, (82, 82))
+                            temp = [crop, ret[0].embedding]
+                            faces.append(temp)
+                        except:
+                            print("Could not load image: "+ name)
+                        
                 
                 shift_i_len = len(self.source_faces)
                 

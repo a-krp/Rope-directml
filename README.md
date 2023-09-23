@@ -30,23 +30,23 @@ Bug Fixes:
 * Fixed bug when dragging the Video timeline. It can now be moved when playing
 * Fixed several remaining bugs with recording 
 * Fixed right click behavior on the video player slider
-
-### Performance:  ###
-Machine: 3090Ti (24GB), i5-13600K
-
-<img src="https://github.com/Hillobar/Rope/assets/63615199/3e3505db-bc76-48df-b8ac-1e7e86c8d751" width="200">
-
-File: benchmark/target-1080p.mp4, 2048x1080, 269 frames, 25 fps, 10s
-
-| Option | Rendering Time [s] |
-| --- | --- |
-| Only Swap | 7.3 |
-| Swap+GFPGAN | 10.7 |
-| Swap+Codeformer | 12.4 |
-| Swap+one word CLIP | 10.4 |
-| Swap+Occluder | 7.8 |
-| Swap+MouthParser | 13.9 |
-| target-2160p.mp4 | 9.7 |
+ 
+### How to Install
+* Copy Github files to a local directory
+* Navigate to the Rope main directory (you will see requirements.txt, Rope.bat, Rope.py, and folders)
+* Right click and select 'Open in Terminal' (or open CMD and navigate there)
+* Set up a local venv
+  * python.exe -m venv venv
+* Activate your new venv
+  * .\venv\Scripts\activate
+* Install requirements
+  * .\venv\Scripts\pip.exe install -r .\requirements.txt
+* [Download the models](https://github.com/Hillobar/Rope/releases/download/Crystal_Shard/models.zip)
+* **To use codeformer use this model**: [CodeFormerv0.1.onnx](https://huggingface.co/countfloyd/deepfake/resolve/main/CodeFormerv0.1.onnx)
+* Unzip models.zip and place the all of the model files into the models\ folder
+* Do this if you've never installed roop or Rope (or any other onnx runtimes):
+  * Install FFMPEG
+* Double-click on Rope.bat!
 
 ### Known bugs: ### 
 * Stop video playback before loading a new video, or bork

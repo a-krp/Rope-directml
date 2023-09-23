@@ -9,6 +9,7 @@ import rope.VideoManager as VM
 import onnxruntime
 import onnx
 import torch
+import torch_directml
 from torchvision import transforms
 
 from rope.external.clipseg import CLIPDensePredT
@@ -166,32 +167,33 @@ def load_swapper_model():
     graph = model.graph
     emap = onnx.numpy_helper.to_array(graph.initializer[-1])
     
-    return onnxruntime.InferenceSession( "./models/inswapper_128.fp16.onnx", providers=["CUDAExecutionProvider"]), emap
+    return onnxruntime.InferenceSession( "./models/inswapper_128.fp16.onnx", providers=["DmlExecutionProvider"]), emap
     
 def load_clip_model():
     # https://github.com/timojl/clipseg
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch_directml.device()
     print(f"Using device: {device}")    
     clip_session = CLIPDensePredT(version='ViT-B/16', reduce_dim=64, complex_trans_conv=True)
     clip_session.eval();
-    clip_session.load_state_dict(torch.load('./models/rd64-uni-refined.pth', map_location=torch.device('cuda')), strict=False) 
+    clip_session.load_state_dict(torch.load('./models/rd64-uni-refined.pth', map_location=torch.device('cpu')), strict=False) 
     clip_session.to(device)    
     return clip_session 
 
 def load_GFPGAN_model():
-    GFPGAN_session = onnxruntime.InferenceSession( "./models/GFPGANv1.4.onnx", providers=["CUDAExecutionProvider"])
+    GFPGAN_session = onnxruntime.InferenceSession( "./models/GFPGANv1.4.onnx", providers=["DmlExecutionProvider"])
     return GFPGAN_session
     
 def load_codeformer_model():    
-    codeformer_session = onnxruntime.InferenceSession( "./models/codeformer_fp16.onnx", providers=["CUDAExecutionProvider"])
+    ops = onnxruntime.SessionOptions()
+    codeformer_session = onnxruntime.InferenceSession( "./models/CodeFormerv0.1.onnx",sess_options=ops,  providers=["DmlExecutionProvider"])
     return codeformer_session
 
 def load_occluder_model():            
-    model = onnxruntime.InferenceSession("./models/occluder.onnx", providers=["CUDAExecutionProvider"])
+    model = onnxruntime.InferenceSession("./models/occluder.onnx", providers=["DmlExecutionProvider"])
     return model 
 
 def load_face_parser_model():    
-    session = onnxruntime.InferenceSession("./models/faceparser_fp16.onnx", providers=["CUDAExecutionProvider"])
+    session = onnxruntime.InferenceSession("./models/faceparser_fp16.onnx", providers=["DmlExecutionProvider"])
 
     to_tensor = transforms.Compose([
         transforms.ToTensor(),

@@ -1,4 +1,4 @@
-# Rope![Screenshot 2023-08-28 100045](https://github.com/Hillobar/Rope/assets/63615199/06dc477d-d479-4d70-9ff3-03b7d8f12b7b)
+![Screenshot 2023-09-17 133025](https://github.com/Hillobar/Rope/assets/63615199/ebd12aa2-666c-49f5-a6f0-53f5eb1e5f52)
 
 Rope implements the insightface inswapper_128 model with a helpful GUI.
 ### [Discord](https://discord.gg/EcdVAFJzqp)
@@ -12,22 +12,29 @@ Rope implements the insightface inswapper_128 model with a helpful GUI.
 * Real-time video player
 * Helpful functions
 
-### New Features for Rope - Crystal: ###
-* New, slightly improved GUI
-* Merged Source Faces. Select multiple Source Faces to create an average Source Face result. Combine different people to create a blend, or select the same person from different Source Faces to improve the likeness of the person
-* Source Faces Shortcuts to always have access to your favorite faces. Works with Merged Source Faces too!
-* Improvements to layout for workflow efficiency
-* Improvements to Target/Source Face selection for workflow efficiency
-* Mousescroll on Target/Source Faces and Target Videos
-* Much lower memory requirements (only 2.7GB if you don't enable GFPGAN, CLIP, etc.)
-* Mouse scrolling in the video player cycles through the Source Faces for the selected Target Face. Quickly view your Source Faces against the Target Face!
-* More speed improvements. Results below. I'll start tracking benchmarks for each release
-* (experimental) Mouth parser. Another occlusion tool just for the mouth area. Improves dialogue and lip sync, but will replace the Source Face mouth.
-* Bug fixes
+### (2023-09-17) Changelog for Rope - Crystal Shard: ###
+**Note: Please check the wiki for installing new model files**
 
-### Clean Install
+
+Fun Stuff:
+* Added mousewheel function to Mouth Parser to adjust the size of the mask
+* Added Codeformer as an enhancer option. Codeformer does a noticeably better job with skin textures, but runs slower. Right-click on the button to toggle Codeformer or GFPGAN. Note: Codeformer takes 15-30 secondfs to load the first time.
+
+Boring Stuff:
+* Mouth Parser and Occluder now use onnxruntime instead of PyTorch. Hopefully this will solve issues with AMD cpu users
+* InsightFace libraries have been removed as a dependency
+* Dependencies have been updated and aligned
+* Performance increase
+* Swapping is now automatically toggled off when dragging the timeline slider. this is to make it more responsive. It will automatically toggle the swap back on once you stop dragging if you had swap on to begin with.
+
+Bug Fixes:
+* Fixed bug when dragging the Video timeline. It can now be moved when playing
+* Fixed several remaining bugs with recording 
+* Fixed right click behavior on the video player slider
+ 
+### How to Install
 * Copy Github files to a local directory
-* Navigate to the Rope main directory (you will see requirements.txt, Rope.bat, Rope.py, and two folders)
+* Navigate to the Rope main directory (you will see requirements.txt, Rope.bat, Rope.py, and folders)
 * Right click and select 'Open in Terminal' (or open CMD and navigate there)
 * Set up a local venv
   * python.exe -m venv venv
@@ -35,7 +42,9 @@ Rope implements the insightface inswapper_128 model with a helpful GUI.
   * .\venv\Scripts\activate
 * Install requirements
   * .\venv\Scripts\pip.exe install -r .\requirements.txt
-* Place [GFPGANv1.4.onnx](https://github.com/Hillobar/Rope/releases/download/Space_Worm/GFPGANv1.4.onnx), [inswapper_128_fp16.onnx](https://github.com/Hillobar/Rope/releases/download/Space_Worm/inswapper_128.fp16.onnx), [occluder.ckpt](https://github.com/Hillobar/Rope/releases/download/Space_Worm/occluder.ckpt), [79999_iter.pth](https://github.com/Hillobar/Rope/releases/download/Crystal/79999_iter.pth), and [epoch_16_best.ckpt](https://github.com/Hillobar/Rope/releases/download/Crystal/epoch_16_best.ckpt) in the models\ folder
+* [Download the models](https://github.com/Hillobar/Rope/releases/download/Crystal_Shard/models.zip)
+* **To use codeformer use this model**: [CodeFormerv0.1.onnx](https://huggingface.co/countfloyd/deepfake/resolve/main/CodeFormerv0.1.onnx)
+* Unzip models.zip and place the all of the model files into the models\ folder
 * Do this if you've never installed roop or Rope (or any other onnx runtimes):
   * Install FFMPEG
 * Double-click on Rope.bat!

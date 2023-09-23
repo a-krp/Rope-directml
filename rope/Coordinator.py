@@ -1,25 +1,19 @@
 # #!/usr/bin/env python3
 import os
 import time
+from collections import OrderedDict
 
 import rope.GUI as GUI
 import rope.VideoManager as VM
 
-from insightface.app import FaceAnalysis
 import onnxruntime
 import onnx
-
 import torch
 import torch_directml
-from rope.external.clipseg import CLIPDensePredT
-
-import segmentation_models_pytorch as smp
-from collections import OrderedDict
 from torchvision import transforms
 
-from rope.external.model import BiSeNet
-
-
+from rope.external.clipseg import CLIPDensePredT
+from rope.external.insight.face_analysis import FaceAnalysis
 
 def coordinator():
     global gui, vm, action, frame, r_frame
@@ -77,16 +71,9 @@ def coordinator():
         elif action[0][0] == "target_faces":
             vm.found_faces_assignments = action[0][1]
             action.pop(0)
-
-   
-
-        
         elif action [0][0] == "num_threads":
             vm.num_threads = action[0][1]
             action.pop(0)         
- 
-  
-
         elif action [0][0] == "pos_thresh":
             vm.pos_thresh = action[0][1]
             action.pop(0)              
@@ -96,36 +83,38 @@ def coordinator():
         elif action [0][0] == "saved_video_path":
             vm.saved_video_path = action[0][1]
             action.pop(0) 
-
-
-
         elif action [0][0] == "vid_qual":
             vm.vid_qual = int(action[0][1])
             action.pop(0) 
-
         elif action [0][0] == "parameters":
-            if action[0][1]["GFPGANState"]:
-                if not vm.GFPGAN_model:
-                    gui.set_status("loading GFPGAN...")
-                    vm.GFPGAN_model = load_GFPGAN_model()
-                    gui.set_status("GFPGAN loaded!")
-            if action[0][1]["CLIPState"]:
+            if action[0][1]["GFPGAN"]:
+                if action[0][1]["Enhancer"] == 'GFPGAN':
+                    if not vm.GFPGAN_model:
+                        gui.set_status("loading GFPGAN...")
+                        vm.GFPGAN_model = load_GFPGAN_model()
+                        gui.set_status("GFPGAN loaded!")
+                elif action[0][1]["Enhancer"] == 'CF':
+                    if not vm.codeformer_model:
+                        gui.set_status("loading GFPGAN...")
+                        vm.codeformer_model = load_codeformer_model()
+                        gui.set_status("GFPGAN loaded!")
+            if action[0][1]["CLIP"]:
                 if not vm.clip_session:
                     gui.set_status("loading CLIP..")
-                    vm.clip_session, vm.cuda_device = load_clip_model()
+                    vm.clip_session = load_clip_model()
                     gui.set_status("CLIP loaded!")                   
-            if action[0][1]["OccluderState"]:
+            if action[0][1]["Occluder"]:
                 if not vm.occluder_model:
                     gui.set_status("loading Occluder.")
-                    vm.occluder_model, vm.occluder_tensor = load_occluder_model()
+                    vm.occluder_model = load_occluder_model()
                     gui.set_status("Occluder loaded!")                     
-            if action[0][1]["FaceParserState"]:
+            if action[0][1]["FaceParser"]:
                 if not vm.face_parsing_model:
                     gui.set_status("loading FaceParser")
                     vm.face_parsing_model, vm.face_parsing_tensor = load_face_parser_model()
+
                     gui.set_status("FaceParser loaded!")                       
-                   
-                    
+  
             vm.parameters = action[0][1]
             action.pop(0) 
             
@@ -144,7 +133,7 @@ def coordinator():
             
         # From VM    
         elif action[0][0] == "stop_play":
-            gui.toggle_play_video()
+            gui.set_player_buttons_to_inactive()
             action.pop(0)        
         
         elif action[0][0] == "set_slider_length":
@@ -168,71 +157,51 @@ def coordinator():
     # print(time.time() - start)    
     
 def load_faceapp_model():
-    app = FaceAnalysis(name='buffalo_l',providers=["DmlExecutionProvider"])
-    app.prepare(ctx_id=0, det_size=(640, 640))
+    app = FaceAnalysis(name='buffalo_l')
+    app.prepare(ctx_id=0, det_thresh=0.5, det_size=(640, 640))
     return app
 
 def load_swapper_model():    
-    # Load Swapper model and get graph param
     model = onnx.load("./models/inswapper_128.fp16.onnx")
+    
     graph = model.graph
-
     emap = onnx.numpy_helper.to_array(graph.initializer[-1])
     
-    # Create Swapper model session
-    opts = onnxruntime.SessionOptions()
-    # opts.enable_profiling = True
-    opts.enable_cpu_mem_arena = False
-    return onnxruntime.InferenceSession( "./models/inswapper_128.fp16.onnx", opts, providers=["DmlExecutionProvider"]), emap
+    return onnxruntime.InferenceSession( "./models/inswapper_128.fp16.onnx", providers=["DmlExecutionProvider"]), emap
     
 def load_clip_model():
+    # https://github.com/timojl/clipseg
     device = torch_directml.device()
     print(f"Using device: {device}")    
     clip_session = CLIPDensePredT(version='ViT-B/16', reduce_dim=64, complex_trans_conv=True)
     clip_session.eval();
     clip_session.load_state_dict(torch.load('./models/rd64-uni-refined.pth', map_location=torch.device('cpu')), strict=False) 
     clip_session.to(device)    
-    return clip_session, device
+    return clip_session 
 
 def load_GFPGAN_model():
-
-    opts = onnxruntime.SessionOptions()
-    # opts.enable_profiling = True
-    opts.enable_cpu_mem_arena = False
     GFPGAN_session = onnxruntime.InferenceSession( "./models/GFPGANv1.4.onnx", providers=["DmlExecutionProvider"])
     return GFPGAN_session
     
+def load_codeformer_model():    
+    ops = onnxruntime.SessionOptions()
+    codeformer_session = onnxruntime.InferenceSession( "./models/CodeFormerv0.1.onnx",sess_options=ops,  providers=["DmlExecutionProvider"])
+    return codeformer_session
+
 def load_occluder_model():            
-    to_tensor = transforms.ToTensor()
-    device = torch_directml.device()
-    model = smp.Unet(encoder_name='resnet18', encoder_weights='imagenet', classes=1, activation=None)
+    model = onnxruntime.InferenceSession("./models/occluder.onnx", providers=["DmlExecutionProvider"])
+    return model 
 
-    weights = torch.load('./models/occluder.ckpt', map_location=torch.device('cpu'))
-    new_weights = OrderedDict()
-    for key in weights.keys():
-        new_key = '.'.join(key.split('.')[1:])
-        new_weights[new_key] = weights[key]
-
-    model.load_state_dict(new_weights)
-    model.to(device)
-    model.eval()
-    return model, to_tensor  
-
-def load_face_parser_model():  
-    device = torch_directml.device()  
-    n_classes = 19
-    model = BiSeNet(n_classes=n_classes)
-    model.load_state_dict(torch.load("./models/79999_iter.pth", map_location=torch.device('cpu')))
-    model.to(device)
-    model.eval()
+def load_face_parser_model():    
+    session = onnxruntime.InferenceSession("./models/faceparser_fp16.onnx", providers=["DmlExecutionProvider"])
 
     to_tensor = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
     ])
     
-    return model, to_tensor  
-    
+    return session, to_tensor 
+
 def run():
     global gui, vm, action, frame, r_frame
     gui = GUI.GUI()
@@ -241,7 +210,6 @@ def run():
     action = []
     frame = []
     r_frame = []
-        
 
     gui.initialize_gui() 
     coordinator()    

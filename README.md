@@ -14,7 +14,7 @@ Rope implements the insightface inswapper_128 model with a helpful GUI.
 * High performance
 * Real-time video player
 * Helpful functions
-
+* **AMD GPU SUPPORT** (1 thread only)
 ### How to Install
 * Copy Github files to a local directory
 * Navigate to the Rope main directory (you will see requirements.txt, Rope.bat, Rope.py, and folders)

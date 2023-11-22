@@ -15,9 +15,12 @@ from torchvision import transforms
 from rope.external.clipseg import CLIPDensePredT
 from rope.external.insight.face_analysis import FaceAnalysis
 
+# @profile
 def coordinator():
-    global gui, vm, action, frame, r_frame
+    global gui, vm, action, frame, r_frame, load_notice
     start = time.time()
+    
+    # print(start)
     
     if gui.get_action_length() > 0:
         action.append(gui.get_action())
@@ -29,7 +32,6 @@ def coordinator():
         
     if len(frame) > 0:
         gui.set_image(frame[0], False)
-        gui.display_image_in_video_frame()
         frame.pop(0)
  ####################   
     if vm.get_requested_frame_length() > 0:
@@ -37,20 +39,28 @@ def coordinator():
     if len(r_frame) > 0:
         # print ("1:", time.time())
         gui.set_image(r_frame[0], True)
-        gui.display_image_in_video_frame()
         r_frame=[]
  ####################   
     if len(action) > 0:
         if action[0][0] == "load_target_video":
             vm.load_target_video(action[0][1])
-            #gui.set_slider_position(0)
             action.pop(0)
+        elif action[0][0] == "load_target_image":
+            vm.load_target_image(action[0][1])
+            action.pop(0)            
         elif action[0][0] == "play_video":
             vm.play_video(action[0][1])
             action.pop(0)
-        elif action[0][0] == "set_video_position":
+        elif action[0][0] == "get_requested_video_frame":
+            # print(gui.video_slider.get())
             vm.get_requested_video_frame(action[0][1])
             action.pop(0)
+        elif action[0][0] == "get_requested_video_frame_parameters":
+            vm.get_requested_video_frame_parameters(action[0][1])
+            action.pop(0)    
+        elif action[0][0] == "get_requested_image":
+            vm.get_requested_image()
+            action.pop(0)            
         elif action[0][0] == "find_faces":
             gui.find_faces(action[0][1])
             action.pop(0)    
@@ -59,17 +69,15 @@ def coordinator():
             action.pop(0)    
         elif action[0][0] == "swap":
             if not vm.swapper_model:
-                gui.set_status("loading Swapper")
                 swapper, emap = load_swapper_model()
                 vm.set_swapper_model(swapper, emap)
-                gui.set_status("Swapper loaded!")   
-            vm.swap_set(action[0][1])
+            vm.swap = action[0][1]
             action.pop(0)
         elif action[0][0] == "source_embeddings":  
             vm.load_source_embeddings(action[0][1])
             action.pop(0)
         elif action[0][0] == "target_faces":
-            vm.found_faces_assignments = action[0][1]
+            vm.target_facess = action[0][1]
             action.pop(0)
         elif action [0][0] == "num_threads":
             vm.num_threads = action[0][1]
@@ -86,48 +94,45 @@ def coordinator():
         elif action [0][0] == "vid_qual":
             vm.vid_qual = int(action[0][1])
             action.pop(0) 
+        elif action [0][0] == "set_stop":
+            vm.stop_marker = action[0][1]
+            action.pop(0)             
+        elif action [0][0] == "load_null":
+            vm.load_null()
+            action.pop(0) 
         elif action [0][0] == "parameters":
-            if action[0][1]["GFPGAN"]:
-                if action[0][1]["Enhancer"] == 'GFPGAN':
+            if action[0][1]['UpscaleState']:
+                index = action[0][1]['UpscaleMode']
+                if action[0][1]['UpscaleModes'][index] == 'GFPGAN':
                     if not vm.GFPGAN_model:
-                        gui.set_status("loading GFPGAN...")
                         vm.GFPGAN_model = load_GFPGAN_model()
-                        gui.set_status("GFPGAN loaded!")
-                elif action[0][1]["Enhancer"] == 'CF':
+                elif action[0][1]['UpscaleModes'][index] == 'CF':
                     if not vm.codeformer_model:
-                        gui.set_status("loading GFPGAN...")
                         vm.codeformer_model = load_codeformer_model()
-                        gui.set_status("GFPGAN loaded!")
-            if action[0][1]["CLIP"]:
+            if action[0][1]["CLIPState"]:
                 if not vm.clip_session:
-                    gui.set_status("loading CLIP..")
                     vm.clip_session = load_clip_model()
-                    gui.set_status("CLIP loaded!")                   
-            if action[0][1]["Occluder"]:
+            if action[0][1]["OccluderState"]:
                 if not vm.occluder_model:
-                    gui.set_status("loading Occluder.")
                     vm.occluder_model = load_occluder_model()
-                    gui.set_status("Occluder loaded!")                     
-            if action[0][1]["FaceParser"]:
+            if action[0][1]["FaceParserState"]:
                 if not vm.face_parsing_model:
-                    gui.set_status("loading FaceParser")
                     vm.face_parsing_model, vm.face_parsing_tensor = load_face_parser_model()
-
-                    gui.set_status("FaceParser loaded!")                       
-  
             vm.parameters = action[0][1]
             action.pop(0) 
+        elif action [0][0] == "markers":
+            vm.markers = action[0][1]
+            action.pop(0)            
+        elif action[0][0] == 'load_faceapp_model':
+            if not gui.faceapp_model or not vm.faceapp_model:
+                faceapp_model = load_faceapp_model() 
+                gui.faceapp_model = faceapp_model
+                vm.faceapp_model = faceapp_model  
+            action.pop(0)
             
         elif action [0][0] == "load_models":
-            gui.set_status("loading Faceapp...")
-            faceapp = load_faceapp_model() 
-            gui.set_faceapp_model(faceapp)
-            vm.set_faceapp_model(faceapp)  
-            gui.set_status("loading Target Videos...")
             gui.populate_target_videos()
-            gui.set_status("loading Source Faces...")
             gui.load_source_faces()
-            gui.set_status("Done...")
             action.pop(0)    
 
             
@@ -167,13 +172,19 @@ def load_swapper_model():
     graph = model.graph
     emap = onnx.numpy_helper.to_array(graph.initializer[-1])
     
-    return onnxruntime.InferenceSession( "./models/inswapper_128.fp16.onnx", providers=["DmlExecutionProvider"]), emap
+    sess_options = onnxruntime.SessionOptions()
+    sess_options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_DISABLE_ALL
+    
+    
+    
+    return onnxruntime.InferenceSession( "./models/inswapper_128.fp16.onnx", sess_options, providers = ['DmlExecutionProvider']), emap
     
 def load_clip_model():
     # https://github.com/timojl/clipseg
     device = torch_directml.device()
     print(f"Using device: {device}")    
     clip_session = CLIPDensePredT(version='ViT-B/16', reduce_dim=64, complex_trans_conv=True)
+    # clip_session = CLIPDensePredTMasked(version='ViT-B/16', reduce_dim=64)
     clip_session.eval();
     clip_session.load_state_dict(torch.load('./models/rd64-uni-refined.pth', map_location=torch.device('cpu')), strict=False) 
     clip_session.to(device)    

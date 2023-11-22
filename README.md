@@ -1,10 +1,13 @@
-![Screenshot 2023-09-17 133025](https://github.com/Hillobar/Rope/assets/63615199/ebd12aa2-666c-49f5-a6f0-53f5eb1e5f52)
+![image](https://github.com/Hillobar/Rope/assets/63615199/3003777e-1477-4c39-9749-cf2314287cad)
 
 Rope implements the insightface inswapper_128 model with a helpful GUI.
 ### [Discord](https://discord.gg/EcdVAFJzqp)
 
-### New [Wiki](https://github.com/Hillobar/Rope/wiki)
-* New install instructions
+### [Donate](https://www.paypal.com/donate/?hosted_button_id=Y5SB9LSXFGRF2)
+
+### [Wiki](https://github.com/Hillobar/Rope/wiki)
+
+### ${{\color{Goldenrod}{\textsf{Last Updated 2023-11-20 14:00 PST}}}}$ ###
 
 ### Features: ###
 * Incredible features and fast workflow
@@ -12,26 +15,6 @@ Rope implements the insightface inswapper_128 model with a helpful GUI.
 * Real-time video player
 * Helpful functions
 
-### (2023-09-17) Changelog for Rope - Crystal Shard: ###
-**Note: Please check the wiki for installing new model files**
-
-
-Fun Stuff:
-* Added mousewheel function to Mouth Parser to adjust the size of the mask
-* Added Codeformer as an enhancer option. Codeformer does a noticeably better job with skin textures, but runs slower. Right-click on the button to toggle Codeformer or GFPGAN. Note: Codeformer takes 15-30 secondfs to load the first time.
-
-Boring Stuff:
-* Mouth Parser and Occluder now use onnxruntime instead of PyTorch. Hopefully this will solve issues with AMD cpu users
-* InsightFace libraries have been removed as a dependency
-* Dependencies have been updated and aligned
-* Performance increase
-* Swapping is now automatically toggled off when dragging the timeline slider. this is to make it more responsive. It will automatically toggle the swap back on once you stop dragging if you had swap on to begin with.
-
-Bug Fixes:
-* Fixed bug when dragging the Video timeline. It can now be moved when playing
-* Fixed several remaining bugs with recording 
-* Fixed right click behavior on the video player slider
- 
 ### How to Install
 * Copy Github files to a local directory
 * Navigate to the Rope main directory (you will see requirements.txt, Rope.bat, Rope.py, and folders)
@@ -49,18 +32,66 @@ Bug Fixes:
   * Install FFMPEG
 * Double-click on Rope.bat!
 
-### Known bugs: ### 
-* Stop video playback before loading a new video, or bork
-* Nottifications on bottom sometime status early
+### (2023-11-17) Changelog for Rope - Sapphire: ###
+**Note: Please check the wiki for installation and link to the new models file**
+- Images! In addition to videos, use Rope to swap images. Seamlessly integrated into the current interface.
+- Timeline markers. Add markers to the timeline that capture the current settings at a specific frame. When playing back or recording, markers control the options when the frame is reached. Add as many markers as you need!
+- Iterations. Apply the swapper model multiple times to a face. It seems to increase likeliness if used carefully.
+- Orientation. Sometimes faces are at a bad orientation, like laying down or upside-down. The face detector has problems with this, so Rope now has an option to tell the detector which way the face is oriented. It is also markerable, so you can set markers for it per frame!
+- Tool tips on (almost) everything. Tips are in the bottom pane.
+- Bug fixes and refactoring
 
-### Preview: ###
+### (2023-11-18) Bug Fixes for Sapphire - Shard: ###
+- (fixed) saving the same image multiple times in a row overwrites it. the time is appended when the image is loaded, not saved, so the time is always the same
+- (fixed) cf is returning weird colors, similar to when the rgm bgr stuff was messed up. try swapping rgp before netering cf
+- (fixed) GFPGAN fp16 might be causing too much harm (going back to original)
+- (fixed) the orientation feature might not be unorienting
+- (fixed) bug (I hope :D) : When clicking on a registered face name (the one of the left) to swap, on the previous version, clicking back to the same face name would delete the choice and unswap the face. Now it's just blocked and I can't "unswap" (unselect) the face. I'm force to select a face or just close and restart the soft.
+- (fixed) update text for all the parser features
+- (fixed) "Switch from one timeline marker to another doesn't properly show the correct features configured. Switch to the next frame (and back the previous one is working too) will fix it and show the correct configuration actually configured on the frame."
+- (fixed) update mask tooltip
+- (fixed) Btw accidentially scrolling Strength below 100% crashed Rope now the third time when CF is enabled. Haven't seen this with GFPGAN yet. I can screenshot the console error if that helps...
+- (new) Added Mask view button, moved mask blur to button above mask view
+- (new) MouthParser scrolls in negative direction to a)only mask the inside of the mouth, and b) grow the inside mouth mask as the amount increases
+- (fixed) GFPGAN and Codeformer will give better results now, especially with details around the eyes and mouth. 
+- (fixed) in some cases, pixel values will be > 255
+- (new) added undock button to image view
+- (new) 'Strength' now has an on/off state
+- (fixed) intermittent play bug
+- (new) Click the mouse on the playback screen to control play/pause
+- (new) Keyboard control with wasd and space 
+- (new) Stop Marker. Sets a frame that will stop the video playing/recording
+
+### Known Bugs: ###
+- Recording starts on the next frame. It's an issue with how the opencv lib is used. In the future, I hope to get around this with another lib or just working directly with ffmpeg.
+- Toggling between img/vid leaves a residual frame in the window. I'll clean this up in the future
+- Unfortunately recording is bugged with Threads = 1. I need to change some logic.
+- When using Markers, the frames before the first marker will use parameters from the the last settings in your options. Not sure if it is a true bug, but best way to deal with this is to create a marker at the first frame.
+
+### Performance:  ###
+Machine: 3090Ti (24GB), i5-13600K
+
+<img src="https://github.com/Hillobar/Rope/assets/63615199/3e3505db-bc76-48df-b8ac-1e7e86c8d751" width="200">
+
+File: benchmark/target-1080p.mp4, 2048x1080, 269 frames, 25 fps, 10s
+Rendering tiem in seconds:
+| Option | Crystal | Sapphire |
+| --- | --- | --- |
+| Only Swap | 7.3 | 7.5 |
+| Swap+GFPGAN | 10.7 | 11.0 |
+| Swap+Codeformer | 12.4 | 13.5 |
+| Swap+one word CLIP | 10.4 | 11.2 |
+| Swap+Occluder | 7.8 | 7.8 |
+| Swap+MouthParser | 13.9 | 12.1 |
+
+### Preview (from Rope-Crystal): ###
 ![image](https://github.com/Hillobar/Rope/assets/63615199/fda0c05f-72a6-4935-a882-dc6d17cfc014)
 
 ### Disclaimer: ###
 Rope is a personal project that I'm making available to the community as a thank you for all of the contributors ahead of me.
 I've copied the disclaimer from [Swap-Mukham](https://github.com/harisreedhar/Swap-Mukham) here since it is well-written and applies 100% to this repo.
  
-I would like to emphasize that our deep fake software is intended for responsible and ethical use only. I must stress that users are solely responsible for their actions when using our software.
+I would like to emphasize that our swapping software is intended for responsible and ethical use only. I must stress that users are solely responsible for their actions when using our software.
 
 Intended Usage: This software is designed to assist users in creating realistic and entertaining content, such as movies, visual effects, virtual reality experiences, and other creative applications. I encourage users to explore these possibilities within the boundaries of legality, ethical considerations, and respect for others' privacy.
 

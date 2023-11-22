@@ -163,7 +163,7 @@ def coordinator():
     
 def load_faceapp_model():
     app = FaceAnalysis(name='buffalo_l')
-    app.prepare(ctx_id=0, det_thresh=0.5, det_size=(512, 512))
+    app.prepare(ctx_id=0, det_thresh=0.5, det_size=(640, 640))
     return app
 
 def load_swapper_model():    
@@ -186,7 +186,7 @@ def load_clip_model():
     clip_session = CLIPDensePredT(version='ViT-B/16', reduce_dim=64, complex_trans_conv=True)
     # clip_session = CLIPDensePredTMasked(version='ViT-B/16', reduce_dim=64)
     clip_session.eval();
-    clip_session.load_state_dict(torch.load('./models/rd64-uni-refined.pth'), strict=False) 
+    clip_session.load_state_dict(torch.load('./models/rd64-uni-refined.pth', map_location=torch.device('cpu')), strict=False) 
     clip_session.to(device)    
     return clip_session 
 

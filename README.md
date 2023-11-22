@@ -25,8 +25,9 @@ Rope implements the insightface inswapper_128 model with a helpful GUI.
   * .\venv\Scripts\activate
 * Install requirements
   * .\venv\Scripts\pip.exe install -r .\requirements.txt
-* [Download the models](https://github.com/Hillobar/Rope/releases/download/Crystal_Shard/models.zip)
+* [Download the models](https://github.com/Hillobar/Rope/releases/download/Sapphire/models.zip)
 * **To use codeformer use this model**: [CodeFormerv0.1.onnx](https://huggingface.co/countfloyd/deepfake/resolve/main/CodeFormerv0.1.onnx)
+* **To use GFPGAN use this model**: [GFPGANv1.4.onnx](https://github.com/Hillobar/Rope/releases/download/Sapphire/GFPGANv1.4.onnx)
 * Unzip models.zip and place the all of the model files into the models\ folder
 * Do this if you've never installed roop or Rope (or any other onnx runtimes):
   * Install FFMPEG

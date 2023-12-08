@@ -1020,7 +1020,7 @@ class VideoManager():
 
         height, width = (512, 512)
         tmp = [width, height, width, height, width, height, width, height, width, height]
-        scale1 = torch.tensor(tmp, dtype=torch.float32, device='cuda')
+        scale1 = torch.tensor(tmp, dtype=torch.float32, device='cpu')
         
         ort_inputs = {"input": image}        
         _, conf, landmarks = self.resnet_model.run(None, ort_inputs)
@@ -1029,10 +1029,10 @@ class VideoManager():
         scores = conf.squeeze(0).numpy()[:, 1]
         
         landmarks = torch.from_numpy(landmarks)
-        landmarks = landmarks.to('cuda')        
+        landmarks = landmarks.to('cpu')        
 
         priors = torch.Tensor(self.anchors).view(-1, 4)
-        priors = priors.to('cuda')
+        priors = priors.to('cpu')
 
         pre = landmarks.squeeze(0) 
         tmp = (priors[:, :2] + pre[:, :2] * 0.1 * priors[:, 2:], priors[:, :2] + pre[:, 2:4] * 0.1 * priors[:, 2:], priors[:, :2] + pre[:, 4:6] * 0.1 * priors[:, 2:], priors[:, :2] + pre[:, 6:8] * 0.1 * priors[:, 2:], priors[:, :2] + pre[:, 8:10] * 0.1 * priors[:, 2:])

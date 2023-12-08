@@ -7,7 +7,7 @@ Rope implements the insightface inswapper_128 model with a helpful GUI.
 
 ### [Wiki](https://github.com/Hillobar/Rope/wiki)
 
-### ${{\color{Goldenrod}{\textsf{Last Updated 2023-11-20 14:00 PST}}}}$ ###
+### ${{\color{Goldenrod}{\textsf{Last Updated 2023-12-04 19:00 PST}}}}$ ###
 
 ### Features: ###
 * Incredible features and fast workflow
@@ -62,6 +62,21 @@ Rope implements the insightface inswapper_128 model with a helpful GUI.
 - (new) Click the mouse on the playback screen to control play/pause
 - (new) Keyboard control with wasd and space 
 - (new) Stop Marker. Sets a frame that will stop the video playing/recording
+
+### (2023-12-02) Bug Fixes for Sapphire - Shard: ###
+- (new) Added performance testing button. Turn on to report some stats in the console. Stats during threaded Play will be jumbled.
+- (fixed) Tooltip fixes
+- (fixed) Fixed bad Rope behavior when losing focus and returning  
+- (fixed) Fixed crashing when using WASD on images
+- (fixed) GFPGAN and Codeformer are now working correctly. This required adding another detection model to these enhancers, so performance is slightly worse now using CF and GFPGAN but the quality is better.
+- (new) Rope can now undock and redock
+- (new) Rope will remember window positions and sizes between sessions, for both docked and undocked views
+- (fixed) Fixed multiple embedding selection bug
+- (fixed) Recording with one thread works again
+
+- ### (2023-12-04) Bug Fixes for Sapphire - Shard: ###
+- (fixed) CV_64F error related to passing float64 to opencv
+- (fixed) Indexerror error related to differences in detection performance between resnet50 and Retinaface
 
 ### Known Bugs: ###
 - Recording starts on the next frame. It's an issue with how the opencv lib is used. In the future, I hope to get around this with another lib or just working directly with ffmpeg.

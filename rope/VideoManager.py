@@ -11,15 +11,24 @@ import subprocess
 from math import floor, ceil
 import bisect
 
-from torchvision.transforms.functional import normalize
+import onnxruntime
+
+import torchvision
+
+from torchvision.transforms.functional import normalize #update to v2
+# from torchvision.transforms import v2
 import torch
 from torchvision import transforms
+torchvision.disable_beta_transforms_warning()
+from torchvision.transforms import v2
 from torchvision.ops import nms
 import json
 import math
 
 from itertools import product as product
-
+# cv2.cuda.createGpuMatFromCudaMemory(h, w, cv2.CV_32F, x.data_ptr())
+device = 'cuda'
+onnxruntime.set_default_logger_severity(4)
 
 # from itertools import combinations
 
@@ -29,36 +38,29 @@ class VideoManager():
     def __init__( self ):
         # Model related
         self.swapper_model = []             # insightface swapper model
-        self.faceapp_model = []             # insight faceapp model
+        # self.faceapp_model = []             # insight faceapp model
         self.input_names = []               # names of the inswapper.onnx inputs
         self.input_size = []                # size of the inswapper.onnx inputs
         self.emap = []                      # comes from loading the inswapper model. not sure of data
         self.output_names = []              # names of the inswapper.onnx outputs    
-        self.arcface_dst = np.array( [[38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366], [41.5493, 92.3655], [70.7299, 92.2041]], dtype=np.float32)                 
+        self.arcface_dst = np.array( [[38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366], [41.5493, 92.3655], [70.7299, 92.2041]], dtype=np.float32)     
         self.GFPGAN_model = []
         self.occluder_model = []
         self.face_parsing_model = []
         self.face_parsing_tensor = []   
         self.codeformer_model = []
-        
-        # training ref
-        
+        self.GPEN_256_model = []
+        self.GPEN_512_model = []
+
         self.FFHQ_kps = np.array([[ 192.98138, 239.94708 ], [ 318.90277, 240.1936 ], [ 256.63416, 314.01935 ], [ 201.26117, 371.41043 ], [ 313.08905, 371.15118 ] ])
-
-        # self.faceapp_kps = self.arcface_dst * 4.0
-        # self.faceapp_kps[:,0] += 32.0
-
-        # self.FFHQM = cv2.estimateAffinePartial2D(self.faceapp_kps, self.FFHQ_kps, method = cv2.LMEDS)[0]
-        # self.FFHQIM = cv2.invertAffineTransform(self.FFHQM)  
         
-        self.scale_4 = cv2.getRotationMatrix2D((0,0), 0, 4.025)
-        
+      
         # for res50
         min_sizes = [[16, 32], [64, 128], [256, 512]]
         steps = [8, 16, 32]
         image_size = 512
         feature_maps = [[64, 64], [32, 32], [16, 16]]
-        # print(feature_maps)
+
         self.anchors = []
         for k, f in enumerate(feature_maps):
             min_size_array = min_sizes[k]
@@ -94,7 +96,7 @@ class VideoManager():
         self.read_video_frame_q = []
         
         # swapping related
-        self.source_embedding = []          # array with indexed source embeddings
+        # self.source_embedding = []          # array with indexed source embeddings
         self.swap = False                   # flag for the swap enabled toggle
         self.target_facess = []   # array that maps the found faces to source faces    
 
@@ -106,9 +108,9 @@ class VideoManager():
         self.fps = 1.0
         self.temp_file = []
 
-        self.i_image = []
-        self.io_binding = False
-        self.video_read_success = False
+        # self.i_image = []
+        self.io_binding = True
+        # self.video_read_success = False
         self.clip_session = []
 
         self.start_time = []
@@ -130,9 +132,12 @@ class VideoManager():
         self.is_image_loaded = False
         self.stop_marker = -1
         self.perf_test = False
-        self.GFPGAN_pth = []
+        # self.GFPGAN_pth = []
         self.resnet_model = []
-        
+        self.detection_model = []
+        self.recognition_model = []
+        self.syncvec = torch.empty((1,1), dtype=torch.float32, device=device)
+
         self.process_q =    {
                             "Thread":                   [],
                             "FrameNumber":              [],
@@ -149,16 +154,6 @@ class VideoManager():
         self.rec_qs = []
 
         self.clip_transform = transforms.Compose([transforms.ToTensor(),transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]), transforms.Resize((352, 352))])
-        
-        self.arcface_dst_max = []
-        self.arcface_dst_max.append( math.sqrt(( self.arcface_dst[0][0]- self.arcface_dst[1][0])*( self.arcface_dst[0][0]- self.arcface_dst[1][0]) + ( self.arcface_dst[0][1]- self.arcface_dst[1][1])*( self.arcface_dst[0][1]- self.arcface_dst[1][1])) )
-        self.arcface_dst_max.append( math.sqrt(( self.arcface_dst[1][0]- self.arcface_dst[4][0])*( self.arcface_dst[1][0]- self.arcface_dst[4][0]) + ( self.arcface_dst[1][1]- self.arcface_dst[4][1])*( self.arcface_dst[1][1]- self.arcface_dst[4][1])) )
-        self.arcface_dst_max.append( math.sqrt(( self.arcface_dst[3][0]- self.arcface_dst[4][0])*( self.arcface_dst[3][0]- self.arcface_dst[4][0]) + ( self.arcface_dst[3][1]- self.arcface_dst[4][1])*( self.arcface_dst[3][1]- self.arcface_dst[4][1])) )
-        self.arcface_dst_max.append( math.sqrt(( self.arcface_dst[0][0]- self.arcface_dst[3][0])*( self.arcface_dst[0][0]- self.arcface_dst[3][0]) + ( self.arcface_dst[0][1]- self.arcface_dst[3][1])*( self.arcface_dst[0][1]- self.arcface_dst[3][1])) )
-        self.arcface_dst_max.append( math.sqrt(( self.arcface_dst[0][0]- self.arcface_dst[4][0])*( self.arcface_dst[0][0]- self.arcface_dst[4][0]) + ( self.arcface_dst[0][1]- self.arcface_dst[4][1])*( self.arcface_dst[0][1]- self.arcface_dst[4][1])) )
-        self.arcface_dst_max.append( math.sqrt(( self.arcface_dst[1][0]- self.arcface_dst[3][0])*( self.arcface_dst[1][0]- self.arcface_dst[3][0]) + ( self.arcface_dst[1][1]- self.arcface_dst[3][1])*( self.arcface_dst[1][1]- self.arcface_dst[3][1])) )        
-
-
 
     def load_target_video( self, file ):
         # If we already have a video loaded, release it
@@ -294,7 +289,6 @@ class VideoManager():
             self.r_frame_q.append(temp)  
 
     def find_lowest_frame(self, queues):
-    
         min_frame=999999999
         index=-1
         
@@ -351,23 +345,23 @@ class VideoManager():
             self.output = os.path.join(self.saved_video_path, base_filename)
             self.temp_file = self.output+"_temp"+self.file_name[1]  
 
-            args =  ["ffmpeg", 
-                    '-hide_banner',
-                    '-loglevel',    'error',
-                    "-an",       
-                    "-r",           str(self.fps),
-                    "-i",           "pipe:",
-                    # '-g',           '25',
-                    "-vf",          "format=yuvj420p",
-                    "-c:v",         "libx264",
-                    "-crf",         str(self.vid_qual),
-                    "-r",           str(self.fps),
-                    "-s",           str(frame_width)+"x"+str(frame_height),
-                    self.temp_file]  
+            # args =  ["ffmpeg", 
+                    # '-hide_banner',
+                    # '-loglevel',    'error',
+                    # "-an",       
+                    # "-r",           str(self.fps),
+                    # "-i",           "pipe:",
+                    # # '-g',           '25',
+                    # "-vf",          "format=yuvj420p",
+                    # "-c:v",         "libx264",
+                    # "-crf",         str(self.vid_qual),
+                    # "-r",           str(self.fps),
+                    # "-s",           str(frame_width)+"x"+str(frame_height),
+                    # self.temp_file]  
             
-            self.sp = subprocess.Popen(args, stdin=subprocess.PIPE)
-      
-
+            # self.sp = subprocess.Popen(args, stdin=subprocess.PIPE)
+            size = (frame_width, frame_height)
+            self.sp = cv2.VideoWriter(self.temp_file,  cv2.VideoWriter_fourcc(*'mp4v') , self.fps, size) 
       
     # @profile
     def process(self):
@@ -427,8 +421,9 @@ class VideoManager():
                 if self.process_qs[index]['Status'] == 'finished':
                     image = self.process_qs[index]['ProcessedFrame']  
 
-                    pil_image = Image.fromarray(image)
-                    pil_image.save(self.sp.stdin, 'JPEG')   
+                    # pil_image = Image.fromarray(image)
+                    # pil_image.save(self.sp.stdin, 'JPEG')   
+                    self.sp.write(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
 
                     temp = [image, self.process_qs[index]['FrameNumber']]
                     self.frame_q.append(temp)
@@ -440,8 +435,9 @@ class VideoManager():
                         if stop_time == 0:
                             stop_time = float(self.video_frame_total) / float(self.fps)
                         
-                        self.sp.stdin.close()
-                        self.sp.wait()
+                        # self.sp.stdin.close()
+                        # self.sp.wait()
+                        self.sp.release()
 
                         orig_file = self.target_video
                         final_file = self.output+self.file_name[1]
@@ -490,10 +486,6 @@ class VideoManager():
                     item['ThreadTime'] = time.time() - item['ThreadTime']
                     break
 
-    def load_source_embeddings(self, source_embeddings):
-        self.source_embedding = []
-        for i in range(len(source_embeddings)):
-            self.source_embedding.append(source_embeddings[i]["Embedding"])
 
     def set_swapper_model(self, swapper, emap):
         self.swapper_model = swapper
@@ -511,13 +503,12 @@ class VideoManager():
         for out in outputs:
             self.output_names.append(out.name)
 
-    # def set_faceapp_model(self, faceapp):
-        # self.faceapp_model = faceapp
-    
     # @profile
     def swap_video(self, target_image, frame_number, change_parameters):   
+        # Grab a local copy of the parameters to prevent threading issues
         parameters = self.parameters.copy()
-
+        
+        # Find out if the frame is in a marker zone and copy the parameters if true
         if self.markers and not change_parameters:
             temp=[]
             for i in range(len(self.markers)):
@@ -526,45 +517,83 @@ class VideoManager():
             
             parameters = self.markers[idx-1]['parameters'].copy()
         
-        # Find faces, returns all faces
-        orientation = int(parameters['OrientationAmount'][0]/parameters['OrientationInc'])
-
-        for i in range(orientation):
-            target_image = cv2.rotate(target_image, cv2.ROTATE_90_COUNTERCLOCKWISE)
-
-        found_faces = self.func_w_test('faceapp', self.faceapp_model.get, target_image, max_num=10)
+        # Load frame into VRAM
+        img = torch.from_numpy(target_image).to('cuda') #HxWxc
+        img = img.permute(2,0,1)#cxHxW        
         
-        if found_faces:
-            img = target_image.copy() # img = RGB
-            
+        #Scale up frame if it is smaller than 512
+        img_x = img.size()[2]
+        img_y = img.size()[1]
+        
+        if img_x<512 and img_y<512:
+            if img_x <= img_y:
+                tscale = v2.Resize((512, 512))
+        
+        elif img_x<512:
+            tscale = v2.Resize((int(512*img_y/img_x), 512))
+            img = tscale(img)
+        
+        elif img_y<512:
+            tscale = v2.Resize((512, int(512*img_x/img_y)))
+            img = tscale(img)        
+
+        # Rotate the frame
+        if parameters['OrientationState']:
+            img = transforms.functional.rotate(img, angle=parameters['OrientationAmount'][0], expand=True)
+
+        # Find all faces in frame and return a list of 5-pt kpss
+        kpss = self.func_w_test("detect", self.detect, img, input_size = (640, 640), max_num=10, metric='default')
+        
+        # Get embeddings for all faces found in the fram
+        ret = []
+        for i in range(kpss.shape[0]):
+            if kpss is not None:
+                face_kps = kpss[i]
+
+            face_emb = self.func_w_test('recognize',  self.recognize, img, face_kps)
+            ret.append([face_kps, face_emb])
+        
+        if ret:
             # Loop through target faces to see if they match our target embeddings
-            for fface in found_faces:
+            for fface in ret:
                 for tface in self.target_facess:
                     # sim between face in video and already found face
-                    sim = self.findCosineDistance(fface.embedding, tface["Embedding"])
-
+                    sim = self.findCosineDistance(fface[1], tface["Embedding"])
                     # if the face[i] in the frame matches afound face[j] AND the found face is active (not []) 
                     threshhold = parameters["ThresholdAmount"][0]/100.0
                     if parameters["ThresholdState"]:
                         threshhold = 2.0
-
+    
                     if sim<float(threshhold) and tface["SourceFaceAssignments"]:
                         s_e =  tface["AssignedEmbedding"]
-                        img = self.func_w_test("swap_video", self.swap_core, img, fface.kps, s_e, orientation, parameters)
-                        # img = self.swap_core(img, fface.kps, s_e, orientation, parameters) 
-            if not parameters['MaskViewState']:
-                for i in range(orientation):
-                    img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
-            
-            target_image = img
+                        img = self.func_w_test("swap_video", self.swap_core, img, fface[0], s_e, parameters, frame_number)
+                        # img = img.permute(2,0,1)
+                    
+            img = img.permute(1,2,0)
+            if not parameters['MaskViewState'] and parameters['OrientationState']:
+                img = img.permute(2,0,1)
+                img = transforms.functional.rotate(img, angle=-parameters['OrientationAmount'][0], expand=True)
+                img = img.permute(1,2,0)
+
         else:
-            for i in range(orientation):
-                target_image = cv2.rotate(target_image, cv2.ROTATE_90_CLOCKWISE)
+            img = img.permute(1,2,0)
+            if parameters['OrientationState']:
+                img = img.permute(2,0,1)
+                img = transforms.functional.rotate(img, angle=-parameters['OrientationAmount'][0], expand=True)
+                img = img.permute(1,2,0)
         
         if self.perf_test:
-            print('------------------------')        
-            
-        return target_image
+            print('------------------------')  
+        
+        # Unscale small videos
+        if img_x <512 or img_y < 512:
+            tscale = v2.Resize((img_y, img_x))
+            img = img.permute(2,0,1)
+            img = tscale(img)
+            img = img.permute(1,2,0)
+
+        img = img.cpu().numpy()    
+        return img.astype(np.uint8)
 
     def findCosineDistance(self, vector1, vector2):
         vec1 = vector1.flatten()
@@ -583,239 +612,288 @@ class VideoManager():
         return result
 
     # @profile    
-    def swap_core(self, img, kps, s_e, rot, parameters): # img = RGB
-
+    def swap_core(self, img, kps, s_e, parameters, frame): # img = RGB
         # 512 transforms
-        ratio = 4.0
-        diff_x = 8.0*ratio
-        dst = self.arcface_dst * ratio
-        dst[:,0] += diff_x
+        dst = self.arcface_dst * 4.0
+        dst[:,0] += 32.0
+        
+        # Change the ref points
+        if parameters['RefDelState']:
+            dst[:,0] += parameters['RefDelAmount'][1]
+            dst[:,1] += parameters['RefDelAmount'][0]
+            dst[:,0] -= 255
+            dst[:,0] *= (1+parameters['RefDelAmount'][2]/100)
+            dst[:,0] += 255
+            dst[:,1] -= 255
+            dst[:,1] *= (1+parameters['RefDelAmount'][2]/100)
+            dst[:,1] += 255
+
         tform = trans.SimilarityTransform()
-        tform.estimate(kps, dst)
-        M512 = tform.params[0:2, :]
-        IM512 = cv2.invertAffineTransform(M512)
-        
-        # orig_bbox = cv2.transform(np.array([[[0,0], [0,512], [512,0], [512,512]]]), np.array(IM512))
+        tform.estimate(kps, dst) 
 
-        # option 2
-        kps_dist = []
-        kps_dist.append( math.sqrt((kps[0][0]-kps[1][0])*(kps[0][0]-kps[1][0]) + (kps[0][1]-kps[1][1])*(kps[0][1]-kps[1][1])) )
-        kps_dist.append( math.sqrt((kps[1][0]-kps[4][0])*(kps[1][0]-kps[4][0]) + (kps[1][1]-kps[4][1])*(kps[1][1]-kps[4][1])) )
-        kps_dist.append( math.sqrt((kps[3][0]-kps[4][0])*(kps[3][0]-kps[4][0]) + (kps[3][1]-kps[4][1])*(kps[3][1]-kps[4][1])) )
-        kps_dist.append( math.sqrt((kps[0][0]-kps[3][0])*(kps[0][0]-kps[3][0]) + (kps[0][1]-kps[3][1])*(kps[0][1]-kps[3][1])) )
-        kps_dist.append( math.sqrt((kps[0][0]-kps[4][0])*(kps[0][0]-kps[4][0]) + (kps[0][1]-kps[4][1])*(kps[0][1]-kps[4][1])) )
-        kps_dist.append( math.sqrt((kps[1][0]-kps[3][0])*(kps[1][0]-kps[3][0]) + (kps[1][1]-kps[3][1])*(kps[1][1]-kps[3][1])) )
-        
-        # max distance index between all facial features in frame size
-        kps_dist_max_index = kps_dist.index(max(kps_dist))   
-        kps_dist_max = kps_dist[kps_dist_max_index]
-        
-        # distance between same features from arcface reference
-        arcface_distance_max = self.arcface_dst_max[kps_dist_max_index]
-        kps_ratio = kps_dist_max / arcface_distance_max
-        # option 2
+        # Scaling Transforms
+        t512 = v2.Resize((512, 512), antialias=True)
+        t256 = v2.Resize((256, 256), antialias=True)
+        t128 = v2.Resize((128, 128), antialias=True)
 
-        original_face_512 = cv2.warpAffine(img, M512, (512,512), borderValue=0.0)
-        original_face_256 = cv2.resize(original_face_512, (256,256))
-        original_face = cv2.resize(original_face_256, (128, 128))        
-        
+        # Grab 512 face from image and create 256 and 128 copys
+        original_face_512 = v2.functional.affine(img, tform.rotation*57.2958, (tform.translation[0], tform.translation[1]) , tform.scale, 0, center = (0,0), interpolation=v2.InterpolationMode.BILINEAR ) 
+
+        original_face_512 = v2.functional.crop(original_face_512, 0,0, 512, 512)# 3, 512, 512
+        original_face_256 = t256(original_face_512)
+        original_face_128 = t128(original_face_256)  
+
+        # Optional Scaling # change the thransform matrix
+        if parameters['TransformState']:
+            original_face_128 = v2.functional.affine(original_face_128, 0, (0,0) , 1+parameters['TransformAmount'][0]/100, 0, center = (63,63), interpolation=v2.InterpolationMode.BILINEAR) 
+
         #Normalize source embedding
         n_e = s_e / l2norm(s_e)
         latent = n_e.reshape((1,-1))
         latent = np.dot(latent, self.emap)
         latent /= np.linalg.norm(latent)
-        
-        swapped_face = original_face.copy()
-        previous_face = []
-        
+        latent = torch.from_numpy(latent).float().to('cuda')
+
+        # Prepare for swapper formats
+        prev_swap = torch.reshape(original_face_128, (1, 3, 128, 128))
+        prev_swap = torch.div(prev_swap, 255)
+        swap = prev_swap.contiguous()
+
         # Swap Face and blend according to Strength
+        itex = 1
         if parameters['StrengthState']:
             itex = ceil(parameters['StrengthAmount'][0]/100.)
-        else:
-            itex = 1
-            
-        if self.io_binding: 
-            io_binding = self.swapper_model.io_binding()     
 
+        # # Bindings
+        io_binding = self.swapper_model.io_binding() 
+
+        # Additional swaps based on strength
         for i in range(itex):
-            previous_face = swapped_face.astype(np.uint8)
-            blob = cv2.dnn.blobFromImage(swapped_face, 1.0 / 255.0, self.input_size, (0.0, 0.0, 0.0), swapRB=False)# blob = RGB
-
-            # inswapper expects RGB        
-            if self.io_binding: 
-                io_binding = self.swapper_model.io_binding()            
-                io_binding.bind_cpu_input(self.input_names[0], blob)
-                io_binding.bind_cpu_input(self.input_names[1], latent)
-                io_binding.bind_output(self.output_names[0])
-                   
-                self.func_w_test("swapio", self.swapper_model.run_with_iobinding, io_binding)
-               
-                ort_outs = io_binding.copy_outputs_to_cpu()
-                pred = ort_outs[0]        
-            else:
-                pred = self.func_w_test("swap", self.swapper_model.run, self.output_names, {self.input_names[0]: blob, self.input_names[1]: latent})[0]
-
-            swapped_face = pred.transpose((0,2,3,1))[0]     
-            swapped_face = np.clip(255 * swapped_face, 0, 255)
-
-        swapped_face = swapped_face.astype(np.float32)
-    
+            prev_swap = swap.detach().clone()
+        
+            # Rebind previous output to input
+            io_binding.bind_input(name=self.input_names[0], device_type='cuda', device_id=0, element_type=np.float32, shape=(1,3,128,128), buffer_ptr=prev_swap.data_ptr())
+            io_binding.bind_input(name=self.input_names[1], device_type='cuda', device_id=0, element_type=np.float32, shape=(1,512), buffer_ptr=latent.data_ptr())
+            io_binding.bind_output(name=self.output_names[0], device_type='cuda', device_id=0, element_type=np.float32, shape=tuple(swap.shape), buffer_ptr=swap.data_ptr())
+            
+            # Sync and run model
+            syncvec = self.syncvec.cpu()          
+            self.swapper_model.run_with_iobinding(io_binding)
+            
         if parameters['StrengthState']:
-            alpha = np.mod(parameters['StrengthAmount'][0], 100)
-            alpha = np.multiply(alpha, 0.01)
+            alpha = np.mod(parameters['StrengthAmount'][0], 100)*0.01
             if alpha==0:
                 alpha=1
-            alpha = np.float32(alpha)
+            # Blend the images
+            swap = torch.mul(swap, alpha)
+            prev_swap = torch.mul(prev_swap, 1-alpha)
+            swap = torch.add(swap, prev_swap)
 
-            previous_face = previous_face.astype(np.float32)
-            swapped_face = np.add(np.multiply(swapped_face, alpha), np.multiply(previous_face, np.subtract(1, alpha)), dtype=np.float32)      
-            # swapped_face = swapped_face*alpha + previous_face*(1-alpha)
+        # Format to 3x128x128 [0..255] uint8
+        swap = torch.squeeze(swap)
+        swap = torch.mul(swap, 255) # should I carry [0..1] through the pipe insteadf?
+        swap = torch.clamp(swap, 0, 255)
+        swap = swap.type(torch.uint8)
+        swap_128 = swap
+        swap = t512(swap)
 
+        # Create border mask
+        border_mask = torch.ones((128, 128), dtype=torch.float32, device=device)
+        border_mask = torch.unsqueeze(border_mask,0)
 
-        
-        # cv2.imwrite('1.png',cv2.cvtColor(swapped_face, cv2.COLOR_RGB2BGR))
-        
-        # convert to float32 for other models to work (codeformer)
-        # swapped_face = swapped_face.astype(np.float32)
-        
-        
-        swapped_face_upscaled = cv2.warpAffine(swapped_face, self.scale_4, (512, 512))#, flags=cv2.INTER_CUBIC)
-        # swapped_face_upscaled = cv2.resize(swapped_face, (512,512), interpolation = cv2.INTER_CUBIC)
-        swapped_face_upscaled = swapped_face_upscaled.clip(0, 255)
-        
-        
-        border_mask = np.zeros((128, 128), dtype=np.float32)  
-        # border_mask = cv2.ellipse(border_mask, (63,63), (axes, int(axes/1.1)),-90, 0, 360, 1, -1)
-
-        # sides and bottom
         top = parameters['BorderAmount'][0]
-        sides = parameters['BorderAmount'][1]
-        bottom = parameters['BorderAmount'][2]
-        blur = parameters['BorderAmount'][3]
-        border_mask = cv2.rectangle(border_mask, (sides, top), (127-sides, 127-bottom), 255, -1)/255
-        border_mask = cv2.GaussianBlur(border_mask, (blur*2+1,blur*2+1),0)
-        img_mask = np.ones((128, 128), dtype=np.float32)  
+        left = parameters['BorderAmount'][1]
+        right = 128-parameters['BorderAmount'][1]
+        bottom = 128-parameters['BorderAmount'][2]
 
+        border_mask[:, :top, :] = 0
+        border_mask[:, bottom:, :] = 0
+        border_mask[:, :, :left] = 0
+        border_mask[:, :, right:] = 0
+
+        gauss = transforms.GaussianBlur(parameters['BorderAmount'][3]*2+1, (parameters['BorderAmount'][3]+1)*0.2)
+        border_mask = gauss(border_mask)        
+
+        # Create image mask
+        swap_mask = torch.ones((128, 128), dtype=torch.float32, device=device)
+        swap_mask = torch.unsqueeze(swap_mask,0)       
 
         # Codeformer
         if parameters["UpscaleState"] and parameters['UpscaleMode']==1:   
-            swapped_face_upscaled = self.func_w_test('codeformer', self.apply_codeformer, swapped_face_upscaled, parameters["UpscaleAmount"][1])
+            swap = self.func_w_test('Codeformer', self.apply_codeformer, swap, parameters)
 
         # GFPGAN
         if parameters["UpscaleState"] and parameters['UpscaleMode']==0: 
-            swapped_face_upscaled = self.func_w_test('GFPGAN_onnx', self.apply_GFPGAN, swapped_face_upscaled, parameters["UpscaleAmount"][0])
-  
+            swap = self.func_w_test('GFPGAN', self.apply_GFPGAN, swap, parameters)
+        
+        # GPEN_256   
+        if parameters["UpscaleState"] and parameters['UpscaleMode']==2: 
+            GPEN_resize = t256(swap)
+            swap = self.func_w_test('GPEN_256', self.apply_GPEN_256, swap, parameters)
+            swap = t512(swap)
+
+        # GPEN_512
+        if parameters["UpscaleState"] and parameters['UpscaleMode']==3: 
+            swap = self.func_w_test('GPEN_512', self.apply_GPEN_512, swap, parameters)
+            
         # Occluder
         if parameters["OccluderState"]:
-            mask = self.func_w_test('occluder', self.apply_occlusion , original_face_256)
-            mask = cv2.resize(mask, (128,128))  
-            img_mask *= mask 
+            mask = self.func_w_test('occluder', self.apply_occlusion , original_face_256, parameters["OccluderAmount"][0])
+            mask = t128(mask)  
+            swap_mask = torch.mul(swap_mask, mask)
 
         # CLIPs CLIPs
         if parameters["CLIPState"]:
+            inface = original_face_512.permute(1,2,0)
+            inface = inface.cpu().numpy()
             with lock:
-                mask = self.func_w_test('CLIP', self.apply_neg_CLIPs, original_face_512, parameters["CLIPText"], parameters["CLIPAmount"][0])
+                mask = self.func_w_test('CLIP', self.apply_neg_CLIPs, inface, parameters["CLIPText"], parameters["CLIPAmount"][0])
             mask = cv2.resize(mask, (128,128))
-            img_mask *= mask
+            mask = torch.from_numpy(mask).to('cuda')
+            swap_mask *= mask
 
         # Face Parsing
         if parameters["FaceParserState"]:
-            mask = self.func_w_test('bg parser', self.apply_bg_face_parser, swapped_face_upscaled, parameters["FaceParserAmount"][1])
-            mask *= self.func_w_test('mouth parser', self.apply_face_parser, original_face_512, parameters["FaceParserAmount"][0])
-            mask = cv2.resize(mask, (128,128))
-            img_mask *= mask
-            
-
+            mask = self.func_w_test('bg parser', self.apply_bg_face_parser, swap, parameters["FaceParserAmount"][1])
+            mask2 = self.func_w_test('mouth parser', self.apply_face_parser, original_face_512, parameters["FaceParserAmount"][0])
+            mask = torch.mul(mask, mask2)
+            mask = t128(mask)
+            swap_mask = torch.mul(swap_mask, mask)
 
         # Face Diffing
         if parameters["DiffState"]:
-            mask = self.apply_fake_diff(swapped_face, original_face, parameters["DiffAmount"][0])
-            mask /= 255
-            img_mask *= mask
+            mask = self.apply_fake_diff(swap_128, original_face_128, parameters["DiffAmount"][0])
+            # mask = t128(mask)
+            swap_mask = torch.mul(swap_mask, mask)
+
+        # Add blur to swap_mask results
+        gauss = transforms.GaussianBlur(parameters['BlurAmount'][0]*2+1, (parameters['BlurAmount'][0]+1)*0.2)
+        swap_mask = gauss(swap_mask)  
         
-        img_mask = cv2.GaussianBlur(img_mask, (parameters["BlurAmount"][0]*2+1,parameters["BlurAmount"][0]*2+1),0)
-        img_mask *= border_mask
-    
-        img_mask = cv2.warpAffine(img_mask, self.scale_4, (512, 512))#, flags=cv2.INTER_CUBIC)
-        # img_mask = cv2.resize(img_mask, (512,512))
-        img_mask = np.reshape(img_mask, [img_mask.shape[0],img_mask.shape[1],1]) 
-        img_mask = img_mask.clip(0, 1)
-        
-        swapped_face_upscaled *= img_mask
+        # Apply color corerctions
+        if parameters['ColorState']:
+            swap = swap.permute(1, 2, 0).type(torch.float32)
+            del_color = torch.tensor([parameters['ColorAmount'][0], parameters['ColorAmount'][1], parameters['ColorAmount'][2]], device=device)
+            swap += del_color
+            swap = torch.clamp(swap, min=0., max=255.)
+            swap = swap.permute(2, 0, 1).type(torch.uint8)
+
+        # Combine border and swap mask, scale, and apply to swap
+        swap_mask = torch.mul(swap_mask, border_mask)
+        swap_mask = t512(swap_mask)
+        swap = torch.mul(swap, swap_mask)
 
         if not parameters['MaskViewState']:
-        
-            swapped_face_upscaled = cv2.warpAffine(swapped_face_upscaled, IM512, (img.shape[1], img.shape[0]), borderValue=0.0) 
+            # Cslculate the area to be mergerd back to the original frame
+            IM512 = tform.inverse.params[0:2, :]
+            corners = np.array([[0,0], [0,511], [511, 0], [511, 511]])
 
-            # Option 2 - 9.8 ms
-            kps_scale = 1.42
-            bbox = [0]*4
-            bbox[0] = kps[2][0]-kps_ratio*56.0252*kps_scale
-            bbox[1] = kps[2][1]-kps_ratio*71.7366*kps_scale
-            bbox[2] = kps[2][0]+kps_ratio*71.7366*kps_scale
-            bbox[3] = kps[2][1]+kps_ratio*56.0252*kps_scale
-
-            left = floor(bbox[0])
+            x = (IM512[0][0]*corners[:,0] + IM512[0][1]*corners[:,1] + IM512[0][2])
+            y = (IM512[1][0]*corners[:,0] + IM512[1][1]*corners[:,1] + IM512[1][2])
+            
+            left = floor(np.min(x))
             if left<0:
                 left=0
-            top = floor(bbox[1])
+            top = floor(np.min(y))
             if top<0: 
                 top=0
-            right = ceil(bbox[2])
-            if right>img.shape[1]:
-                right=img.shape[1]
+            right = ceil(np.max(x))
+            if right>img.shape[2]:
+                right=img.shape[2]            
+            bottom = ceil(np.max(y))
+            if bottom>img.shape[1]:
+                bottom=img.shape[1]   
+
+            # Untransform the swap
+            swap = v2.functional.pad(swap, (0,0,img.shape[2]-512, img.shape[1]-512))
+            swap = v2.functional.affine(swap, tform.inverse.rotation*57.2958, (tform.inverse.translation[0], tform.inverse.translation[1]), tform.inverse.scale, 0,interpolation=v2.InterpolationMode.BILINEAR, center = (0,0) )  
+            swap = swap[0:3, top:bottom, left:right]
+            swap = swap.permute(1, 2, 0)
             
-            bottom = ceil(bbox[3])
-            if bottom>img.shape[0]:
-                bottom=img.shape[0]
+            # Untransform the swap mask
+            swap_mask = v2.functional.pad(swap_mask, (0,0,img.shape[2]-512, img.shape[1]-512))
+            swap_mask = v2.functional.affine(swap_mask, tform.inverse.rotation*57.2958, (tform.inverse.translation[0], tform.inverse.translation[1]), tform.inverse.scale, 0, interpolation=v2.InterpolationMode.BILINEAR, center = (0,0) ) 
+            swap_mask = swap_mask[0:1, top:bottom, left:right]                        
+            swap_mask = swap_mask.permute(1, 2, 0)
+            swap_mask = torch.sub(1, swap_mask) 
+
+            # Apply the mask to the original image areas
+            img_crop = img[0:3, top:bottom, left:right]
+            img_crop = img_crop.permute(1,2,0)            
+            img_crop = torch.mul(swap_mask,img_crop)
             
-            swapped_face_upscaled = swapped_face_upscaled[top:bottom, left:right, 0:3].astype(np.float32)  
-            img_a = img[top:bottom, left:right, 0:3].astype(np.float32)
-         
-            img_mask = cv2.warpAffine(img_mask, IM512, (img.shape[1], img.shape[0]), borderValue=0.0)
-            img_mask = np.reshape(img_mask, [img_mask.shape[0],img_mask.shape[1],1])
-            img_mask = img_mask[top:bottom, left:right, 0:1]
-            img_mask = 1.0-img_mask 
-            img_mask = torch.from_numpy(img_mask)
-            img_a = torch.from_numpy(img_a)
-            
-            swapped_face_upscaled += torch.mul(img_mask,img_a).numpy()
-            img[top:bottom, left:right, 0:3] = swapped_face_upscaled        
+            #Add the cropped areas and place them back into the original image
+            swap = torch.add(swap, img_crop)
+            swap = swap.type(torch.uint8)
+            swap = swap.permute(2,0,1)
+            img[0:3, top:bottom, left:right] = swap  
 
         else:
-            img_mask = cv2.merge((img_mask, img_mask, img_mask))
-            swapped_face_upscaled += (1.0-img_mask)*original_face_512
-            img = np.hstack([swapped_face_upscaled, img_mask*255])
+            # Invert swap mask
+            swap_mask = torch.sub(1, swap_mask)
+            
+            # Combine preswapped face with swap
+            original_face_512 = torch.mul(swap_mask, original_face_512)
+            original_face_512 = torch.add(swap, original_face_512)            
+            original_face_512 = original_face_512.type(torch.uint8)
+            original_face_512 = original_face_512.permute(1, 2, 0)
 
+            # Uninvert and create image from swap mask
+            swap_mask = torch.sub(1, swap_mask) 
+            swap_mask = torch.cat((swap_mask,swap_mask,swap_mask),0)
+            swap_mask = swap_mask.permute(1, 2, 0)
 
-        return img.astype(np.uint8)   #BGR
+            # Place them side by side
+            img = torch.hstack([original_face_512, swap_mask*255])
+            img = img.permute(2,0,1)
+
+        return img
         
     # @profile    
-    def apply_occlusion(self, img):        
-        img = (img /255.0)
+    def apply_occlusion(self, img, amount):        
+        img = torch.div(img, 255)
+        img = torch.unsqueeze(img, 0)
 
-        img = np.float32(img[np.newaxis,:,:,:])
-        img = img.transpose(0, 3, 1, 2)
+        outpred = torch.ones((256,256), dtype=torch.float32, device=device).contiguous()
         
-        inputs = {"img": img}
+        io_binding = self.occluder_model.io_binding()            
+        io_binding.bind_input(name='img', device_type='cuda', device_id=0, element_type=np.float32, shape=(1,3,256,256), buffer_ptr=img.data_ptr())
+        io_binding.bind_output(name='output', device_type='cuda', device_id=0, element_type=np.float32, shape=(1,1,256,256), buffer_ptr=outpred.data_ptr())   
+
+        # Sync and run model
+        syncvec = self.syncvec.cpu()       
+        self.occluder_model.run_with_iobinding(io_binding)    
         
-        if self.io_binding: 
-            io_binding = self.occluder_model.io_binding()            
-            io_binding.bind_cpu_input('img', img)
-            io_binding.bind_output('output')
-               
-            self.occluder_model.run_with_iobinding(io_binding)
-            occlude_mask = io_binding.copy_outputs_to_cpu()[0][0]
-        else:
-            occlude_mask = self.occluder_model.run(None, inputs)[0][0]     
+        outpred = torch.squeeze(outpred)
 
-        occlude_mask = (occlude_mask > 0)
-        occlude_mask = occlude_mask.transpose(1, 2, 0).astype(np.float32)
-
+        outpred = (outpred > 0)
+        outpred = torch.unsqueeze(outpred, 0).type(torch.float32)
         
-        # occlude_mask = occlude_mask.squeeze().numpy()*1.0
+        if amount >0:                   
+            kernel = torch.ones((1,1,3,3), dtype=torch.float32, device=device)
 
-        return occlude_mask         
+            for i in range(int(amount)):
+                outpred = torch.nn.functional.conv2d(outpred, kernel, padding=(1, 1))       
+                outpred = torch.clamp(outpred, 0, 1)
+            
+            outpred = torch.squeeze(outpred)
+            
+        if amount <0:      
+            outpred = torch.neg(outpred)
+            outpred = torch.add(outpred, 1)
+
+            kernel = torch.ones((1,1,3,3), dtype=torch.float32, device=device)
+
+            for i in range(int(-amount)):
+                outpred = torch.nn.functional.conv2d(outpred, kernel, padding=(1, 1))       
+                outpred = torch.clamp(outpred, 0, 1)
+            
+            outpred = torch.squeeze(outpred)
+            outpred = torch.neg(outpred)
+            outpred = torch.add(outpred, 1)
+            
+        outpred = torch.reshape(outpred, (1, 256, 256)) 
+        return outpred         
     
       
     def apply_neg_CLIPs(self, img, CLIPText, CLIPAmount):
@@ -843,205 +921,397 @@ class VideoManager():
     def apply_face_parser(self, img, FaceParserAmount):
 
         # atts = [1 'skin', 2 'l_brow', 3 'r_brow', 4 'l_eye', 5 'r_eye', 6 'eye_g', 7 'l_ear', 8 'r_ear', 9 'ear_r', 10 'nose', 11 'mouth', 12 'u_lip', 13 'l_lip', 14 'neck', 15 'neck_l', 16 'cloth', 17 'hair', 18 'hat']
-        out = np.ones((512, 512), dtype=np.float32) 
+       
+       # out = np.ones((512, 512), dtype=np.float32) 
+        outpred = torch.ones((512,512), dtype=torch.float32, device='cuda').contiguous()
+        
         # turn mouth parser off at 0 so someone can just use the background parser
         if FaceParserAmount != 0:        
-            img1 = self.face_parsing_tensor(img.astype(np.uint8))
-            img = torch.unsqueeze(img1, 0).numpy()      
+            img = torch.div(img, 255)
+            img = v2.functional.normalize(img, (0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+            img = torch.reshape(img, (1, 3, 512, 512))      
+            outpred = torch.empty((1,19,512,512), dtype=torch.float32, device='cuda').contiguous()
+            
+            io_binding = self.face_parsing_model.io_binding()            
+            io_binding.bind_input(name='input', device_type='cuda', device_id=0, element_type=np.float32, shape=(1,3,512,512), buffer_ptr=img.data_ptr())
+            io_binding.bind_output(name='out', device_type='cuda', device_id=0, element_type=np.float32, shape=(1,19,512,512), buffer_ptr=outpred.data_ptr())   
 
-            if self.io_binding:
-                io_binding = self.face_parsing_model.io_binding()            
-                io_binding.bind_cpu_input("input", img)
-                io_binding.bind_output("out")
-                   
-                self.face_parsing_model.run_with_iobinding(io_binding)
-                out = io_binding.copy_outputs_to_cpu()[0]
-            else:
-                out = self.face_parsing_model.run(None, {'input':img})[0]
+            torch.cuda.synchronize('cuda')       
+            self.face_parsing_model.run_with_iobinding(io_binding)
 
-            out = out.squeeze(0).argmax(0)
+            outpred = torch.squeeze(outpred)
+            outpred = torch.argmax(outpred, 0)
             
             if FaceParserAmount <0:
-                out = np.isin(out, [11]).astype('float32')
-                out = -1.0*(out-1.0)
-                size = int(-FaceParserAmount)
-                kernel = np.ones((size, size))
-                out = cv2.erode(out, kernel, iterations=2)
+                test = torch.tensor([11], device='cuda')
+                iters = int(-FaceParserAmount)
+                
             elif FaceParserAmount >0:
-                out = np.isin(out, [11,12,13]).astype('float32')
-                out = -1.0*(out-1.0)
-                size = int(FaceParserAmount)
-                kernel = np.ones((size, size))
-                out = cv2.erode(out, kernel, iterations=2)
+                test = torch.tensor([11,12,13], device='cuda')
+                iters = int(FaceParserAmount)
             
-        return out.clip(0,1)
+            outpred = torch.isin(outpred, test)            
+            outpred = torch.clamp(~outpred, 0, 1).type(torch.float32)
+            outpred = torch.reshape(outpred, (1,1,512,512))            
+            outpred = torch.neg(outpred)
+            outpred = torch.add(outpred, 1)
+
+            kernel = torch.ones((1,1,3,3), dtype=torch.float32, device='cuda')
+
+            for i in range(iters):
+                outpred = torch.nn.functional.conv2d(outpred, kernel, padding=(1, 1))       
+                outpred = torch.clamp(outpred, 0, 1)
+                
+            outpred = torch.squeeze(outpred)
+            outpred = torch.neg(outpred)
+            outpred = torch.add(outpred, 1)
+        outpred = torch.reshape(outpred, (1, 512, 512))   
+    
+        return outpred
 
     def apply_bg_face_parser(self, img, FaceParserAmount):
 
         # atts = [1 'skin', 2 'l_brow', 3 'r_brow', 4 'l_eye', 5 'r_eye', 6 'eye_g', 7 'l_ear', 8 'r_ear', 9 'ear_r', 10 'nose', 11 'mouth', 12 'u_lip', 13 'l_lip', 14 'neck', 15 'neck_l', 16 'cloth', 17 'hair', 18 'hat']
-        out = np.ones((512, 512), dtype=np.float32)  
+        # out = np.ones((512, 512), dtype=np.float32)  
         
+        outpred = torch.ones((512,512), dtype=torch.float32, device='cuda').contiguous()
+
         # turn mouth parser off at 0 so someone can just use the mouth parser
         if FaceParserAmount != 0:
-            img1 = self.face_parsing_tensor(img.astype(np.uint8))
-            img = torch.unsqueeze(img1, 0).numpy()      
-
-            if self.io_binding:
-                io_binding = self.face_parsing_model.io_binding()            
-                io_binding.bind_cpu_input("input", img)
-                io_binding.bind_output("out")
-                   
-                self.face_parsing_model.run_with_iobinding(io_binding)
-                out = io_binding.copy_outputs_to_cpu()[0]
-            else:
-                out = self.face_parsing_model.run(None, {'input':img})[0]
+            img = torch.div(img, 255)
+            img = v2.functional.normalize(img, (0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+            img = torch.reshape(img, (1, 3, 512, 512))      
+            outpred = torch.empty((1,19,512,512), dtype=torch.float32, device=device).contiguous()
             
-                out = out.squeeze(0).argmax(0)
-                out = np.isin(out, [0, 16, 17, 18]).astype('float32')
-                out = -1.0*(out-1.0)
+            io_binding = self.face_parsing_model.io_binding()            
+            io_binding.bind_input(name='input', device_type='cuda', device_id=0, element_type=np.float32, shape=(1,3,512,512), buffer_ptr=img.data_ptr())
+            io_binding.bind_output(name='out', device_type='cuda', device_id=0, element_type=np.float32, shape=(1,19,512,512), buffer_ptr=outpred.data_ptr())   
 
+            torch.cuda.synchronize('cuda')       
+            self.face_parsing_model.run_with_iobinding(io_binding)
+
+            outpred = torch.squeeze(outpred)
+            outpred = torch.argmax(outpred, 0)
+
+            test = torch.tensor([ 0, 14, 15, 16, 17, 18], device=device)
+            outpred = torch.isin(outpred, test)  
+            outpred = torch.clamp(~outpred, 0, 1).type(torch.float32)            
+            outpred = torch.reshape(outpred, (1,1,512,512))
+            
             if FaceParserAmount >0:                   
-                size = int(FaceParserAmount)
-                kernel = np.ones((size, size))
-                out = cv2.dilate(out, kernel, iterations=2)
-            elif FaceParserAmount <0:
-                size = int(-FaceParserAmount)
-                kernel = np.ones((size, size))
-                out = cv2.erode(out, kernel, iterations=2)
-        return out.clip(0,1)
+                kernel = torch.ones((1,1,3,3), dtype=torch.float32, device=device)
 
-    def apply_GFPGAN(self, swapped_face_upscaled, GFPGANAmount):     
-        try:
-            landmark = self.ret50_landmarks(swapped_face_upscaled) 
-        except:
-            return swapped_face_upscaled     
+                for i in range(int(FaceParserAmount)):
+                    outpred = torch.nn.functional.conv2d(outpred, kernel, padding=(1, 1))       
+                    outpred = torch.clamp(outpred, 0, 1)
+                
+                outpred = torch.squeeze(outpred)
+                
+            if FaceParserAmount <0:      
+                outpred = torch.neg(outpred)
+                outpred = torch.add(outpred, 1)
+
+                kernel = torch.ones((1,1,3,3), dtype=torch.float32, device=device)
+
+                for i in range(int(-FaceParserAmount)):
+                    outpred = torch.nn.functional.conv2d(outpred, kernel, padding=(1, 1))       
+                    outpred = torch.clamp(outpred, 0, 1)
+                
+                outpred = torch.squeeze(outpred)
+                outpred = torch.neg(outpred)
+                outpred = torch.add(outpred, 1)
+
+        outpred = torch.reshape(outpred, (1, 512, 512))
         
-        FFHQM = cv2.estimateAffinePartial2D(landmark, self.FFHQ_kps, method = cv2.LMEDS)[0]
-        FFHQIM = cv2.invertAffineTransform(FFHQM)   
+        return outpred
+    
+    # @profile
+    def apply_GPEN_256(self, swapped_face_upscaled, parameters):     
+        # Set up Transformation
+        dst = self.arcface_dst * 4.0
+        dst[:,0] += 32.0        
+        tform = trans.SimilarityTransform()   
+
+        t512 = v2.Resize((512, 512), antialias=True)
+        t256 = v2.Resize((256, 256), antialias=True)         
         
-        temp = cv2.warpAffine(swapped_face_upscaled, FFHQM, (512, 512), borderMode=cv2.BORDER_CONSTANT, borderValue=(135, 133, 132))
-        temp = temp / 255.0
-        temp = torch.from_numpy(temp.transpose(2, 0, 1))
-        normalize(temp, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True)
-        temp = np.float32(temp[np.newaxis,:,:,:])
+        # # Select detection approach
+        # if parameters['TestState']:
+            # try:
+                # dst = self.ret50_landmarks(swapped_face_upscaled) 
+            # except:
+                # return swapped_face_upscaled     
 
-        ort_inputs = {"input": temp}
+        tform.estimate(dst, self.FFHQ_kps)
 
-        if self.io_binding:
-            io_binding = self.GFPGAN_model.io_binding()            
-            io_binding.bind_cpu_input("input", temp)
-            # io_binding.bind_output("1288", "cuda")
-            io_binding.bind_output("output")
-               
-            self.GFPGAN_model.run_with_iobinding(io_binding)
-            ort_outs = io_binding.copy_outputs_to_cpu()
-        else:
-            
-            ort_outs = self.GFPGAN_model.run(None, ort_inputs)
+        # Transform, scale, and normalize
+        temp = v2.functional.affine(swapped_face_upscaled, tform.rotation*57.2958, (tform.translation[0], tform.translation[1]) , tform.scale, 0, center = (0,0) )
+        temp = v2.functional.crop(temp, 0,0, 512, 512)        
+        temp = torch.div(temp, 255)
+        temp = v2.functional.normalize(temp, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=False)
+        temp = t256(temp)
+        temp = torch.unsqueeze(temp, 0)
+
+        # Bindings
+        outpred = torch.empty((1,3,256,256), dtype=torch.float32, device=device).contiguous()
+        io_binding = self.GPEN_256_model.io_binding() 
+        io_binding.bind_input(name='input', device_type='cuda', device_id=0, element_type=np.float32, shape=(1,3,256,256), buffer_ptr=temp.data_ptr())
+        io_binding.bind_output(name='output', device_type='cuda', device_id=0, element_type=np.float32, shape=(1,3,256,256), buffer_ptr=outpred.data_ptr())
         
-        output = ort_outs[0][0]
-
-        # postprocess
-        output = output.clip(-1,1)
-        output = (output + 1) / 2
-        output = output.transpose(1, 2, 0)
-        output = (output * 255.0).round()
-        output = cv2.warpAffine(output, FFHQIM, (512, 512))
+        # Sync and run model
+        syncvec = self.syncvec.cpu()
+        self.GPEN_256_model.run_with_iobinding(io_binding)
         
-        alpha = float(GFPGANAmount)/100.0        
-        swapped_face_upscaled = output*alpha + swapped_face_upscaled*(1.0-alpha)
+        # Format back to cxHxW @ 255
+        outpred = torch.squeeze(outpred)      
+        outpred = torch.clamp(outpred, -1, 1)
+        outpred = torch.add(outpred, 1)
+        outpred = torch.div(outpred, 2)
+        outpred = torch.mul(outpred, 255)
+        outpred = t512(outpred)
+        
+        # Invert Transform
+        outpred = v2.functional.affine(outpred, tform.inverse.rotation*57.2958, (tform.inverse.translation[0], tform.inverse.translation[1]) , tform.
+        inverse.scale, 0, interpolation=v2.InterpolationMode.BILINEAR, center = (0,0) )
 
-        return swapped_face_upscaled
+        # Blend
+        alpha = float(parameters["UpscaleAmount"][2])/100.0  
+        outpred = torch.add(torch.mul(outpred, alpha), torch.mul(swapped_face_upscaled, 1-alpha))
+
+        return outpred                   
+             
+                
+    def apply_GPEN_512(self, swapped_face_upscaled, parameters):     
+        # Set up Transformation
+        dst = self.arcface_dst * 4.0
+        dst[:,0] += 32.0        
+        tform = trans.SimilarityTransform()        
+        
+        # # Select detection approach
+        # if parameters['TestState']:
+            # try:
+                # dst = self.ret50_landmarks(swapped_face_upscaled) 
+            # except:
+                # return swapped_face_upscaled     
+
+        tform.estimate(dst, self.FFHQ_kps)
+
+        # Transform, scale, and normalize
+        temp = v2.functional.affine(swapped_face_upscaled, tform.rotation*57.2958, (tform.translation[0], tform.translation[1]) , tform.scale, 0, center = (0,0) )
+        temp = v2.functional.crop(temp, 0,0, 512, 512)        
+        temp = torch.div(temp, 255)
+        temp = v2.functional.normalize(temp, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=False)
+        temp = torch.unsqueeze(temp, 0)
+
+        # Bindings
+        outpred = torch.empty((1,3,512,512), dtype=torch.float32, device=device).contiguous()
+        io_binding = self.GPEN_512_model.io_binding() 
+        io_binding.bind_input(name='input', device_type='cuda', device_id=0, element_type=np.float32, shape=(1,3,512,512), buffer_ptr=temp.data_ptr())
+        io_binding.bind_output(name='output', device_type='cuda', device_id=0, element_type=np.float32, shape=(1,3,512,512), buffer_ptr=outpred.data_ptr())
+        
+        # Sync and run model
+        syncvec = self.syncvec.cpu()
+        self.GPEN_512_model.run_with_iobinding(io_binding)
+        
+        # Format back to cxHxW @ 255
+        outpred = torch.squeeze(outpred)      
+        outpred = torch.clamp(outpred, -1, 1)
+        outpred = torch.add(outpred, 1)
+        outpred = torch.div(outpred, 2)
+        outpred = torch.mul(outpred, 255)
+        
+        # Invert Transform
+        outpred = v2.functional.affine(outpred, tform.inverse.rotation*57.2958, (tform.inverse.translation[0], tform.inverse.translation[1]) , tform.
+        inverse.scale, 0, interpolation=v2.InterpolationMode.BILINEAR, center = (0,0) )
+
+        # Blend
+        alpha = float(parameters["UpscaleAmount"][3])/100.0  
+        outpred = torch.add(torch.mul(outpred, alpha), torch.mul(swapped_face_upscaled, 1-alpha))
+
+        return outpred                
+                
+    def apply_GFPGAN(self, swapped_face_upscaled, parameters):     
+        # Set up Transformation
+        dst = self.arcface_dst * 4.0
+        dst[:,0] += 32.0        
+        tform = trans.SimilarityTransform()        
+        
+        # # Select detection approach
+        # if parameters['TestState']:
+            # try:
+                # dst = self.ret50_landmarks(swapped_face_upscaled) 
+            # except:
+                # return swapped_face_upscaled     
+
+        tform.estimate(dst, self.FFHQ_kps)
+
+        # Transform, scale, and normalize
+        temp = v2.functional.affine(swapped_face_upscaled, tform.rotation*57.2958, (tform.translation[0], tform.translation[1]) , tform.scale, 0, center = (0,0) )
+        temp = v2.functional.crop(temp, 0,0, 512, 512)        
+        temp = torch.div(temp, 255)
+        temp = v2.functional.normalize(temp, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=False)
+        temp = torch.unsqueeze(temp, 0)
+
+        # Bindings
+        outpred = torch.empty((1,3,512,512), dtype=torch.float32, device=device).contiguous()
+        io_binding = self.GFPGAN_model.io_binding() 
+        io_binding.bind_input(name='input', device_type='cuda', device_id=0, element_type=np.float32, shape=(1,3,512,512), buffer_ptr=temp.data_ptr())
+        io_binding.bind_output(name='output', device_type='cuda', device_id=0, element_type=np.float32, shape=(1,3,512,512), buffer_ptr=outpred.data_ptr())
+        
+        # Sync and run model
+        syncvec = self.syncvec.cpu()
+        self.GFPGAN_model.run_with_iobinding(io_binding)
+        
+        # Format back to cxHxW @ 255
+        outpred = torch.squeeze(outpred)      
+        outpred = torch.clamp(outpred, -1, 1)
+        outpred = torch.add(outpred, 1)
+        outpred = torch.div(outpred, 2)
+        outpred = torch.mul(outpred, 255)
+        
+        # Invert Transform
+        outpred = v2.functional.affine(outpred, tform.inverse.rotation*57.2958, (tform.inverse.translation[0], tform.inverse.translation[1]) , tform.
+        inverse.scale, 0, interpolation=v2.InterpolationMode.BILINEAR, center = (0,0) )
+
+        # Blend
+        alpha = float(parameters["UpscaleAmount"][0])/100.0  
+        outpred = torch.add(torch.mul(outpred, alpha), torch.mul(swapped_face_upscaled, 1-alpha))
+
+        return outpred
         
     def apply_fake_diff(self, swapped_face, original_face, DiffAmount):
-        fake_diff = swapped_face.astype(np.float32) - original_face.astype(np.float32)
-        fake_diff = np.abs(fake_diff).mean(axis=2)
-        fake_diff[:2,:] = 0
-        fake_diff[-2:,:] = 0
-        fake_diff[:,:2] = 0
-        fake_diff[:,-2:] = 0        
-        
-        fthresh = DiffAmount/2.0
-        fake_diff[fake_diff<fthresh] = 0
-        fake_diff[fake_diff>=fthresh] = 255 
+        swapped_face = swapped_face.permute(1,2,0)
+        original_face = original_face.permute(1,2,0)
 
-        return fake_diff    
-    
-     
-    def apply_codeformer(self, swapped_face_upscaled, GFPGANAmount):
-        try:
-            landmark = self.ret50_landmarks(swapped_face_upscaled) 
-        except:
-            return swapped_face_upscaled
+        diff = swapped_face-original_face
+        diff = torch.abs(diff)
         
-        FFHQM = cv2.estimateAffinePartial2D(landmark, self.FFHQ_kps, method = cv2.LMEDS)[0]
-        FFHQIM = cv2.invertAffineTransform(FFHQM)         
+        # Find the diffrence between the swap and original, per channel
+        fthresh = DiffAmount*2.55
+        
+        # Bimodal
+        diff[diff<fthresh] = 0
+        diff[diff>=fthresh] = 1 
+        
+        # If any of the channels exceeded the threshhold, them add them to the mask
+        diff = torch.sum(diff, dim=2)
+        diff = torch.unsqueeze(diff, 2)
+        diff[diff>0] = 1
+        
+        diff = diff.permute(2,0,1)
+
+        return diff    
     
-    
-        img = cv2.warpAffine(swapped_face_upscaled, FFHQM, (512, 512), borderMode=cv2.BORDER_CONSTANT, borderValue=(135, 133, 132))         
-        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-        img = img.astype(np.float32)[:,:,::-1] / 255.0
-        img = img.transpose((2, 0, 1))
-        img = (img - 0.5) / 0.5
-        img = np.expand_dims(img, axis=0).astype(np.float32)
+    def apply_codeformer(self, swapped_face_upscaled, parameters):
+        # Set up Transformation
+        dst = self.arcface_dst * 4.0
+        dst[:,0] += 32.0        
+        tform = trans.SimilarityTransform()        
+        
+        # # Select detection approach
+        # if parameters['TestState']:
+            # try:
+                # dst = self.ret50_landmarks(swapped_face_upscaled) 
+            # except:
+                # return swapped_face_upscaled     
+
+        tform.estimate(dst, self.FFHQ_kps)        
+ 
+        # Transform, scale, and normalize
+        temp = v2.functional.affine(swapped_face_upscaled, tform.rotation*57.2958, (tform.translation[0], tform.translation[1]) , tform.scale, 0, center = (0,0) )
+        temp = v2.functional.crop(temp, 0,0, 512, 512)   
+        temp = torch.div(temp, 255)
+        temp = v2.functional.normalize(temp, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=False)
+        temp = torch.reshape(temp, (1, 3, 512, 512))#############change to unsqueeze
+
+        # Bindings
+        outpred = torch.empty((1,3,512,512), dtype=torch.float32, device=device).contiguous()
         w = np.array([1.0], dtype=np.double)
+        io_binding = self.codeformer_model.io_binding() 
+        io_binding.bind_input(name='x', device_type='cuda', device_id=0, element_type=np.float32, shape=(1,3,512,512), buffer_ptr=temp.data_ptr())
+        io_binding.bind_cpu_input('w', w)
+        io_binding.bind_output(name='y', device_type='cuda', device_id=0, element_type=np.float32, shape=(1,3,512,512), buffer_ptr=outpred.data_ptr())
         
-        if self.io_binding: 
-            io_binding = self.codeformer_model.io_binding()            
-            io_binding.bind_cpu_input('x', img)
-            io_binding.bind_cpu_input('w', w)
-            io_binding.bind_output('y')
-               
-            self.codeformer_model.run_with_iobinding(io_binding)
-            output = io_binding.copy_outputs_to_cpu()[0][0]
-        
-        else:
-            output = self.codeformer_model.run(None, {'x':img, 'w':w})[0][0]
+        # Sync and run model
+        syncvec = self.syncvec.cpu()
+        self.codeformer_model.run_with_iobinding(io_binding)           
 
-        img = (output.transpose(1,2,0).clip(-1,1) + 1) * 0.5
-        img = (img * 255)[:,:,::-1]
-        img = img.clip(0, 255)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img = cv2.warpAffine(img, FFHQIM, (512, 512))
+        # Format back to cxHxW @ 255
+        outpred = torch.squeeze(outpred)      
+        outpred = torch.clamp(outpred, -1, 1)
+        outpred = torch.add(outpred, 1)
+        outpred = torch.div(outpred, 2)
+        outpred = torch.mul(outpred, 255)
 
-        alpha = float(GFPGANAmount)/100.0
-        img = img*alpha + swapped_face_upscaled*(1.0-alpha)
-        
-        return img
-        
-    
+        # Invert Transform
+        outpred = v2.functional.affine(outpred, tform.inverse.rotation*57.2958, (tform.inverse.translation[0], tform.inverse.translation[1]) , tform.
+        inverse.scale, 0, interpolation=v2.InterpolationMode.BILINEAR, center = (0,0) )
+
+        # Blend
+        alpha = float(parameters["UpscaleAmount"][1])/100.0  
+        outpred = torch.add(torch.mul(outpred, alpha), torch.mul(swapped_face_upscaled, 1-alpha))
+
+        return outpred
 
     # @profile    
     def ret50_landmarks(self, image):    
-        image = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
-        image = image - [104., 117., 123.]
-        image = image.transpose(2, 0, 1)
-        image = np.float32(image[np.newaxis,:,:,:])
+        # image = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
+        image = image.permute(1,2,0)
+        
+        # image = image - [104, 117, 123]
+        mean = torch.tensor([104, 117, 123], dtype=torch.float32, device='cuda')
+        image = torch.sub(image, mean)
+        
+        # image = image.transpose(2, 0, 1)
+        # image = np.float32(image[np.newaxis,:,:,:])
+        image = image.permute(2,0,1)
+        image = torch.reshape(image, (1, 3, 512, 512))
+
 
         height, width = (512, 512)
         tmp = [width, height, width, height, width, height, width, height, width, height]
         scale1 = torch.tensor(tmp, dtype=torch.float32, device='cpu')
         
-        ort_inputs = {"input": image}        
-        _, conf, landmarks = self.resnet_model.run(None, ort_inputs)
+        # ort_inputs = {"input": image}        
+        conf = torch.empty((1,10752,2), dtype=torch.float32, device=device).contiguous()
+        landmarks = torch.empty((1,10752,10), dtype=torch.float32, device=device).contiguous()
 
-        conf = torch.from_numpy(conf)
-        scores = conf.squeeze(0).numpy()[:, 1]
+        io_binding = self.resnet_model.io_binding() 
+        io_binding.bind_input(name='input', device_type='cuda', device_id=0, element_type=np.float32, shape=(1,3,512,512), buffer_ptr=image.data_ptr())
+        io_binding.bind_output(name='conf', device_type='cuda', device_id=0, element_type=np.float32, shape=(1,10752,2), buffer_ptr=conf.data_ptr())
+        io_binding.bind_output(name='landmarks', device_type='cuda', device_id=0, element_type=np.float32, shape=(1,10752,10), buffer_ptr=landmarks.data_ptr())
         
-        landmarks = torch.from_numpy(landmarks)
-        landmarks = landmarks.to('cpu')        
+        # _, conf, landmarks = self.resnet_model.run(None, ort_inputs)        
+        torch.cuda.synchronize('cuda')
+        self.resnet_model.run_with_iobinding(io_binding)        
+        
 
-        priors = torch.Tensor(self.anchors).view(-1, 4)
-        priors = priors.to('cpu')
+        # conf = torch.from_numpy(conf)
+        # scores = conf.squeeze(0).numpy()[:, 1]
+        scores = torch.squeeze(conf)[:, 1]
+        
+        # landmarks = torch.from_numpy(landmarks)
+        # landmarks = landmarks.to('cuda')        
 
-        pre = landmarks.squeeze(0) 
+        priors = torch.tensor(self.anchors).view(-1, 4)
+        priors = priors.to('cuda')
+
+        # pre = landmarks.squeeze(0) 
+        pre = torch.squeeze(landmarks, 0)
+        
         tmp = (priors[:, :2] + pre[:, :2] * 0.1 * priors[:, 2:], priors[:, :2] + pre[:, 2:4] * 0.1 * priors[:, 2:], priors[:, :2] + pre[:, 4:6] * 0.1 * priors[:, 2:], priors[:, :2] + pre[:, 6:8] * 0.1 * priors[:, 2:], priors[:, :2] + pre[:, 8:10] * 0.1 * priors[:, 2:])
         landmarks = torch.cat(tmp, dim=1)
-        landmarks = landmarks * scale1
+        # landmarks = landmarks * scale1
+        landmarks = torch.mul(landmarks, scale1)
+
         landmarks = landmarks.cpu().numpy()  
 
         # ignore low scores
-        inds = np.where(scores > 0.97)[0]
+        # inds = np.where(scores > 0.97)[0]
+        inds = torch.where(scores>0.97)[0]
+        inds = inds.cpu().numpy()  
+        scores = scores.cpu().numpy()  
+        
         landmarks, scores = landmarks[inds], scores[inds]    
 
         # sort
@@ -1049,85 +1319,213 @@ class VideoManager():
         landmarks = landmarks[order][0]
 
         return np.array([[landmarks[i], landmarks[i + 1]] for i in range(0,10,2)])
-        
-    # def ret50_landmarks(self, image):    
-        # image = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
-        # image = image - [104., 117., 123.]
-        # image = image.transpose(2, 0, 1)
-        # image = np.float32(image[np.newaxis,:,:,:])
 
-        # height, width = (512, 512)
-        # scale = torch.tensor([width, height, width, height], dtype=torch.float32, device='cuda')
-        # tmp = [width, height, width, height, width, height, width, height, width, height]
-        # scale1 = torch.tensor(tmp, dtype=torch.float32, device='cuda')
-        
-        # ort_inputs = {"input": image}    
-    
-        # loc, conf, landmarks = self.resnet_model.run(None, ort_inputs)
-    
-        # loc = torch.from_numpy(loc)
-        # loc = loc.to('cuda')
-        
-        # conf = torch.from_numpy(conf)
-        # conf = conf.to('cuda')
-        
-        # landmarks = torch.from_numpy(landmarks)
-        # landmarks = landmarks.to('cuda')        
-        
-        # # priors = self.priors(image.shape[2:])
-        
-        # min_sizes = [[16, 32], [64, 128], [256, 512]]
-        # steps = [8, 16, 32]
-        # image_size = image.shape[2:]
-        # feature_maps = [[ceil(image_size[0] / step), ceil(image_size[1] / step)] for step in steps]
+    def detect(self, img, input_size, max_num=0, metric='default'):
+        # Resize image to fit within the input_size
+        im_ratio = torch.div(img.size()[1], img.size()[2])
 
-        # anchors = []
-        # for k, f in enumerate(feature_maps):
-            # min_size_array = min_sizes[k]
-            # for i, j in product(range(f[0]), range(f[1])):
-                # for min_size in min_size_array:
-                    # s_kx = min_size / image_size[1]
-                    # s_ky = min_size / image_size[0]
-                    # dense_cx = [x * steps[k] / image_size[1] for x in [j + 0.5]]
-                    # dense_cy = [y * steps[k] / image_size[0] for y in [i + 0.5]]
-                    # for cy, cx in product(dense_cy, dense_cx):
-                        # anchors += [cx, cy, s_kx, s_ky]
+        model_ratio = float(input_size[1]) / input_size[0]
+        if im_ratio>model_ratio:
+            new_height = input_size[1]
+            new_width = int(new_height / im_ratio)
+        else:
+            new_width = input_size[0]
+            new_height = int(new_width * im_ratio)
+        det_scale = torch.div(new_height,  img.size()[1])
 
-        # # back to torch land
-        # priors = torch.Tensor(anchors).view(-1, 4)
-        # priors = priors.to('cuda')
+        resize = v2.Resize((new_height, new_width), antialias=True)
+        img = resize(img)
+        img = img.permute(1,2,0)
 
-        # # boxes = self.decode(loc.data.squeeze(0), priors.data)
-        # loc = loc.squeeze(0)
-        # boxes = torch.cat((priors[:, :2] + loc[:, :2] * 0.1 * priors[:, 2:], priors[:, 2:] * torch.exp(loc[:, 2:] * 0.2)), 1)
-        # boxes[:, :2] -= boxes[:, 2:] / 2
-        # boxes[:, 2:] += boxes[:, :2]
-        # boxes = boxes * scale
-        # boxes = boxes.cpu().numpy()
+        det_img = torch.zeros((input_size[1], input_size[0], 3), dtype=torch.float32, device=device)
+        det_img[:new_height,:new_width,  :] = img
+
+        # Switch to BGR and normalize
+        det_img = det_img[:, :, [2,1,0]]
+        det_img = torch.sub(det_img, 127.5)
+        det_img = torch.div(det_img, 128.0)
+        det_img = det_img.permute(2, 0, 1) #3,128,128
         
-        # scores = conf.squeeze(0).cpu().numpy()[:, 1]
+        # Prepare data and find model parameters 
+        det_img = torch.unsqueeze(det_img, 0).contiguous()
+        input_name = self.detection_model.get_inputs()[0].name
         
-        # pre = landmarks.squeeze(0) 
-        # tmp = (priors[:, :2] + pre[:, :2] * 0.1 * priors[:, 2:], priors[:, :2] + pre[:, 2:4] * 0.1 * priors[:, 2:], priors[:, :2] + pre[:, 4:6] * 0.1 * priors[:, 2:], priors[:, :2] + pre[:, 6:8] * 0.1 * priors[:, 2:], priors[:, :2] + pre[:, 8:10] * 0.1 * priors[:, 2:])
-        # landmarks = torch.cat(tmp, dim=1)
-        # landmarks = landmarks * scale1
-        # landmarks = landmarks.cpu().numpy()  
-
-        # # ignore low scores
-        # inds = np.where(scores > 0.97)[0]
-        # boxes, landmarks, scores = boxes[inds], landmarks[inds], scores[inds]    
-
-        # # sort
-        # order = scores.argsort()[::-1]
-        # boxes, landmarks, scores = boxes[order], landmarks[order], scores[order]  
-
-        # # do NMS
-        # bounding_boxes = np.hstack((boxes, scores[:, np.newaxis])).astype(np.float32, copy=False)
-        # keep = list(nms(boxes=torch.Tensor(bounding_boxes[:, :4]), scores=torch.Tensor(bounding_boxes[:, 4]), iou_threshold=0.4))
+        outputs = self.detection_model.get_outputs()
+        output_names = []
+        for o in outputs:
+            output_names.append(o.name)
         
-        # bounding_boxes, landmarks = bounding_boxes[keep, :], landmarks[keep]        
+        io_binding = self.detection_model.io_binding() 
+        io_binding.bind_input(name=input_name, device_type='cuda', device_id=0, element_type=np.float32,  shape=det_img.size(), buffer_ptr=det_img.data_ptr())
         
-        # bbox = np.concatenate((bounding_boxes, landmarks), axis=1)
-        # bbox = bbox[0]
-        # #freaem 1046
-        # return np.array([[bbox[i], bbox[i + 1]] for i in range(5, 15, 2)])  
+        for i in range(len(output_names)):
+            io_binding.bind_output(output_names[i], 'cuda') 
+        
+        # Sync and run model
+        syncvec = self.syncvec.cpu()     
+        self.detection_model.run_with_iobinding(io_binding)
+        
+        net_outs = io_binding.copy_outputs_to_cpu()
+
+        input_height = det_img.shape[2]
+        input_width = det_img.shape[3]
+        
+        fmc = 3
+        center_cache = {}
+        scores_list = []
+        bboxes_list = []
+        kpss_list = []
+        for idx, stride in enumerate([8, 16, 32]):
+            scores = net_outs[idx]
+            bbox_preds = net_outs[idx+fmc]
+            bbox_preds = bbox_preds * stride
+
+            kps_preds = net_outs[idx+fmc*2] * stride
+            height = input_height // stride
+            width = input_width // stride
+            K = height * width
+            key = (height, width, stride)
+            if key in center_cache:
+                anchor_centers = center_cache[key]
+            else:
+                anchor_centers = np.stack(np.mgrid[:height, :width][::-1], axis=-1).astype(np.float32)
+                anchor_centers = (anchor_centers * stride).reshape( (-1, 2) )
+                anchor_centers = np.stack([anchor_centers]*2, axis=1).reshape( (-1,2) )
+                if len(center_cache)<100:
+                    center_cache[key] = anchor_centers
+            
+            pos_inds = np.where(scores>=0.5)[0]
+
+            x1 = anchor_centers[:, 0] - bbox_preds[:, 0]
+            y1 = anchor_centers[:, 1] - bbox_preds[:, 1]
+            x2 = anchor_centers[:, 0] + bbox_preds[:, 2]
+            y2 = anchor_centers[:, 1] + bbox_preds[:, 3]
+
+            bboxes = np.stack([x1, y1, x2, y2], axis=-1)  
+            
+            pos_scores = scores[pos_inds]
+            pos_bboxes = bboxes[pos_inds]
+            scores_list.append(pos_scores)
+            bboxes_list.append(pos_bboxes)
+
+            preds = []
+            for i in range(0, kps_preds.shape[1], 2):
+                px = anchor_centers[:, i%2] + kps_preds[:, i]
+                py = anchor_centers[:, i%2+1] + kps_preds[:, i+1]
+
+                preds.append(px)
+                preds.append(py)
+            kpss = np.stack(preds, axis=-1) 
+            #kpss = kps_preds
+            kpss = kpss.reshape( (kpss.shape[0], -1, 2) )
+            pos_kpss = kpss[pos_inds]
+            kpss_list.append(pos_kpss)
+
+        scores = np.vstack(scores_list)
+        scores_ravel = scores.ravel()
+        order = scores_ravel.argsort()[::-1]
+        
+        det_scale = det_scale.numpy()###
+        
+        bboxes = np.vstack(bboxes_list) / det_scale
+
+        kpss = np.vstack(kpss_list) / det_scale
+        pre_det = np.hstack((bboxes, scores)).astype(np.float32, copy=False)
+        pre_det = pre_det[order, :]
+        
+        dets = pre_det
+        thresh = 0.4
+        x1 = dets[:, 0]
+        y1 = dets[:, 1]
+        x2 = dets[:, 2]
+        y2 = dets[:, 3]
+        scoresb = dets[:, 4]
+
+        areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+        orderb = scoresb.argsort()[::-1]
+
+        keep = []
+        while orderb.size > 0:
+            i = orderb[0]
+            keep.append(i)
+            xx1 = np.maximum(x1[i], x1[orderb[1:]])
+            yy1 = np.maximum(y1[i], y1[orderb[1:]])
+            xx2 = np.minimum(x2[i], x2[orderb[1:]])
+            yy2 = np.minimum(y2[i], y2[orderb[1:]])
+
+            w = np.maximum(0.0, xx2 - xx1 + 1)
+            h = np.maximum(0.0, yy2 - yy1 + 1)
+
+            inter = w * h
+            ovr = inter / (areas[i] + areas[orderb[1:]] - inter)
+
+            inds = np.where(ovr <= thresh)[0]
+            orderb = orderb[inds + 1]        
+
+        det = pre_det[keep, :]
+
+        kpss = kpss[order,:,:]
+        kpss = kpss[keep,:,:]
+
+        if max_num > 0 and det.shape[0] > max_num:
+            area = (det[:, 2] - det[:, 0]) * (det[:, 3] -
+                                                    det[:, 1])
+            det_img_center = det_img.shape[0] // 2, det_img.shape[1] // 2
+            offsets = np.vstack([
+                (det[:, 0] + det[:, 2]) / 2 - det_img_center[1],
+                (det[:, 1] + det[:, 3]) / 2 - det_img_center[0]
+            ])
+            offset_dist_squared = np.sum(np.power(offsets, 2.0), 0)
+
+            values = area - offset_dist_squared * 2.0  # some extra weight on the centering
+            bindex = np.argsort(values)[::-1]  # some extra weight on the centering
+            bindex = bindex[0:max_num]
+
+            if kpss is not None:
+                kpss = kpss[bindex, :]
+                
+        return kpss   
+
+    def recognize(self, img, face_kps):
+        # Find transform 
+        tform = trans.SimilarityTransform()
+        tform.estimate(face_kps, self.arcface_dst)
+
+        # Transform
+        img = v2.functional.affine(img, tform.rotation*57.2958, (tform.translation[0], tform.translation[1]) , tform.scale, 0, center = (0,0) ) 
+        img = v2.functional.crop(img, 0,0, 112, 112)
+
+        # Switch to BGR and normalize
+        img = img.permute(1,2,0) #112,112,3        
+        img = img[:, :, [2,1,0]]
+        img = torch.sub(img, 127.5)
+        img = torch.div(img, 127.5)        
+        img = img.permute(2, 0, 1) #3,112,112
+        
+        # Prepare data and find model parameters        
+        img = torch.unsqueeze(img, 0).contiguous()     
+        input_name = self.recognition_model.get_inputs()[0].name
+        
+        outputs = self.recognition_model.get_outputs()
+        output_names = []
+        for o in outputs:
+            output_names.append(o.name)
+        
+        io_binding = self.recognition_model.io_binding() 
+        io_binding.bind_input(name=input_name, device_type='cuda', device_id=0, element_type=np.float32,  shape=img.size(), buffer_ptr=img.data_ptr())
+
+        for i in range(len(output_names)):
+            io_binding.bind_output(output_names[i], 'cuda') 
+        
+        # Sync and run model
+        syncvec = self.syncvec.cpu()
+        self.recognition_model.run_with_iobinding(io_binding)
+
+        # Return embedding
+        return np.array(io_binding.copy_outputs_to_cpu()).flatten()      
+
+
+                
+        # test = swap.permute(1, 2, 0)
+        # test = test.cpu().numpy()
+        # cv2.imwrite('2.jpg', test) 

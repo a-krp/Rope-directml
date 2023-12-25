@@ -10,10 +10,14 @@ from skimage import transform as trans
 from math import floor, ceil
 import copy
 import bisect
+import torch
+import torchvision
+torchvision.disable_beta_transforms_warning()
+from torchvision.transforms import v2
+import mimetypes
 #import inspect print(inspect.currentframe().f_back.f_code.co_name, 'resize_image')
 
 from  rope.Dicts import PARAM_BUTTONS_PARAMS, ACTIONS, PARAM_BUTTONS_CONSTANT
-
 last_frame = 0
 
 class GUI(tk.Tk):
@@ -21,7 +25,7 @@ class GUI(tk.Tk):
         super().__init__()
         # Adding a title to the self
         # self.call('tk', 'scaling', 0.5)
-        self.title('Rope')
+        self.title('Rope-Ruby')
         self.pixel = []
         self.parameters = PARAM_BUTTONS_PARAMS
         self.actions = ACTIONS
@@ -38,7 +42,7 @@ class GUI(tk.Tk):
         self.found_faces_assignments = []
         self.play_video = False
         self.rec_video = False
-        self.faceapp_model = []
+        # self.faceapp_model = []
         self.video_loaded = False
         self.docked = True
         self.undock = []
@@ -47,10 +51,13 @@ class GUI(tk.Tk):
         self.stop_image = []
         self.marker_icon = []
         self.stop_marker_icon = []
+        self.video_length = []
 
-        self.window_y = []
-        self.window_width = []
-        self.window_height = []
+        # self.window_y = []
+        # self.window_width = []
+        # self.window_height = []
+        self.detection_model = []
+        self.recognition_model = []
         
         self.arcface_dst = np.array( [[38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366], [41.5493, 92.3655], [70.7299, 92.2041]], dtype=np.float32)   
 
@@ -268,7 +275,7 @@ class GUI(tk.Tk):
         self.options_frame_canvas1.grid( row = 1, column = 0, sticky='NEWS', pady = 0 )
 
         # Label Frame 1
-        self.label_frame1 = tk.LabelFrame( self.options_frame_canvas1, self.frame_style, height = 71, width = 1200 )
+        self.label_frame1 = tk.LabelFrame( self.options_frame_canvas1, self.frame_style, height = 71, width = 1400 )
         self.label_frame1.place(x=0, y=0)
         
         column=8
@@ -299,6 +306,13 @@ class GUI(tk.Tk):
         column=column+125+x_space
         self.create_ui_button('Blur', self.label_frame1, column, 8)   
         self.create_ui_button('MaskView', self.label_frame1, column, 37)
+        
+        column=column+125+x_space
+        self.create_ui_button('RefDel', self.label_frame1, column, 8) 
+        self.create_ui_button('Transform', self.label_frame1, column, 37)   
+
+        column=column+125+x_space
+        self.create_ui_button('Color', self.label_frame1, column, 8)         
 
  ######## Target Faces           
         # Frame
@@ -407,8 +421,8 @@ class GUI(tk.Tk):
         self.create_ui_button_2('OutputFolder', self.program_options_label, column, 8, width = 125, height = 26)
         column=column+125+x_space
         self.create_ui_button_2('Threads', self.program_options_label, column, 8, width = 125, height = 26)
-        column=column+125+x_space
-        self.create_ui_button_2('VideoQuality', self.program_options_label, column, 8,width = 125, height = 26)
+        # column=column+125+x_space
+        # self.create_ui_button_2('VideoQuality', self.program_options_label, column, 8,width = 125, height = 26)
         column=column+125+x_space
         self.create_ui_button_2('PerfTest', self.program_options_label, column, 8,width = 125, height = 26)
         
@@ -435,28 +449,26 @@ class GUI(tk.Tk):
         # print(event.char, event.keysym, event.keycode)
 
         if self.focus_get() != self.CLIP_name and self.focus_get() != self.me_name and self.actions['ImgVidMode'] == 0:
+            frame = self.video_slider.get()
             if event.char == ' ':
                 self.toggle_play_video()
             elif event.char == 'w':
-                frame = self.video_slider.get()+1
-                self.video_slider.set(frame)
-                self.add_action("get_requested_video_frame", frame)
-                self.parameter_update_from_marker(frame)
+                frame += 1
             elif event.char == 's':
-                frame = self.video_slider.get()-1   
-                self.video_slider.set(frame)
-                self.add_action("get_requested_video_frame", frame)
-                self.parameter_update_from_marker(frame)
+                frame -= 1 
             elif event.char == 'd':
-                frame = self.video_slider.get()+30 
-                self.video_slider.set(frame)
-                self.add_action("get_requested_video_frame", frame)
-                self.parameter_update_from_marker(frame)
+                frame += 30 
             elif event.char == 'a':
-                frame = self.video_slider.get()-30 
-                self.video_slider.set(frame)
-                self.add_action("get_requested_video_frame", frame)
-                self.parameter_update_from_marker(frame)
+                frame -= 30 
+
+            if frame > self.video_length:
+                frame = self.video_length
+            elif frame < 0:
+                frame = 0
+            
+            self.video_slider.set(frame)
+            self.add_action("get_requested_video_frame", frame)
+            self.parameter_update_from_marker(frame)
 
 
     def initialize_gui( self ):
@@ -601,12 +613,16 @@ class GUI(tk.Tk):
         self.update_ui_button('Threshold')
         self.update_ui_button('Strength')
         self.update_ui_button('Orientation')
+        self.update_ui_button('RefDel')
+        self.update_ui_button('Transform')
+        self.update_ui_button('Color')
 
-        self.change_video_quality(event)
+
+        # self.change_video_quality(event)
         self.change_threads_amount(event)    
         
         self.add_action("parameters", self.parameters)   
-        self.set_status('Welcome to Rope-Crystal!')
+        self.set_status('Welcome to Rope-Ruby!')
             
     def load_all(self):
         if not self.json_dict["source videos"] or not self.json_dict["source faces"]:
@@ -668,7 +684,7 @@ class GUI(tk.Tk):
         self.load_source_faces()
             
     def load_source_faces(self):
-        if not self.faceapp_model:
+        if not self.detection_model:
             self.add_action('load_faceapp_model')
         
         else:
@@ -676,8 +692,7 @@ class GUI(tk.Tk):
             self.source_faces_canvas.delete("all")
 
             # First load merged embeddings
-            if os.path.exists("merged_embeddings.txt"):
-
+            try:
                 temp0 = []
                 with open("merged_embeddings.txt", "r") as embedfile:
                     temp = embedfile.read().splitlines() 
@@ -689,184 +704,118 @@ class GUI(tk.Tk):
                 self.pixel = tk.PhotoImage(height=0, width=0)
                 
                 for j in range(len(temp0)):
-                    
                     new_source_face = self.source_face.copy()
                     self.source_faces.append(new_source_face)
                     
                     self.source_faces[j]["ButtonState"] = False
                     self.source_faces[j]["Embedding"] = temp0[j][1] 
                     self.source_faces[j]["TKButton"] = tk.Button(self.source_faces_canvas, self.inactive_button_style, image=self.pixel, text=temp0[j][0], height=14, width=84, compound='left')
-                    
-   
-                    
+
                     self.source_faces[j]["TKButton"].bind("<ButtonRelease-1>", lambda event, arg=j: self.toggle_source_faces_buttons_state(event, arg))
                     self.source_faces[j]["TKButton"].bind("<Shift-ButtonRelease-1>", lambda event, arg=j: self.toggle_source_faces_buttons_state_shift(event, arg))
                     self.source_faces[j]["TKButton"].bind("<MouseWheel>", self.source_faces_mouse_wheel)
                     
                     self.source_faces_canvas.create_window((j//4)*92,8+(22*(j%4)), window = self.source_faces[j]["TKButton"],anchor='nw')            
                     # print((j//4)*92,8+(22*(j%4)))
+            except:
+                pass
 
             directory = self.json_dict["source faces"]
-
-            if directory == None:
-                print("No directory assigned")
-            else:
-            
-                filenames = os.listdir(directory)
-                
-                faces = []
-                
+            filenames = [os.path.join(dirpath,f) for (dirpath, dirnames, filenames) in os.walk(directory) for f in filenames]         
+            faces = []
+            for file in filenames: # Does not include full path
                 # Find all faces and ad to faces[]
-                for name in filenames: #should check if is an image
-                    temp_file = os.path.join(directory, name)
-                    temp_file = cv2.imread(temp_file)
-                    ret = self.faceapp_model.get(temp_file, max_num=1)
-                    if ret:
-                        # 128 transforms
-                        ratio = 1.0
-                        diff_x = 8.0*ratio
-                        dst = self.arcface_dst * ratio
-                        dst[:,0] += diff_x
-                        tform = trans.SimilarityTransform()
-                        tform.estimate(ret[0].kps, dst)
-                        M128 = tform.params[0:2, :]  
-                        IM128 = cv2.invertAffineTransform(M128)
-                        
-                        orig_bbox = cv2.transform(np.array([[[0,0], [0,128], [128,0], [128,128]]]), np.array(IM128))                    
-                    
-                        left = floor(min(orig_bbox[0][0][0], orig_bbox[0][1][0] ))
-                        if left<0:
-                            left=0
-                        top = floor(min(orig_bbox[0][0][1], orig_bbox[0][2][1] ))
-                        if top<0: 
-                            top=0
-                        right = ceil(max(orig_bbox[0][2][0], orig_bbox[0][3][0] ))
-                        if right>temp_file.shape[1]:
-                            right=temp_file.shape[1]        
-                        bottom = ceil(max(orig_bbox[0][1][1], orig_bbox[0][3][1] ))
-                        if bottom>temp_file.shape[0]:
-                            bottom=temp_file.shape[0]
-
-                        y_diff = bottom-top
-                        x_diff = right-left
-                    
-                        crop = temp_file[int(top):int(bottom),int(left):int(right)]#y,x
-                        if y_diff > x_diff:
-                            padding = int((y_diff - x_diff) / 2)
-                            crop = cv2.copyMakeBorder( crop, 0, 0, padding, padding, cv2.BORDER_CONSTANT)
-                        else:
-                            padding = int((x_diff - y_diff) / 2)
-                            crop = cv2.copyMakeBorder( crop, padding, padding, 0, 0, cv2.BORDER_CONSTANT )
-
-                        try:       
-                            crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)            
-                            crop = cv2.resize( crop, (82, 82))
-                            temp = [crop, ret[0].embedding]
-                            faces.append(temp)
+                # Guess File type based on extension
+                try:
+                    file_type = mimetypes.guess_type(file)[0][:5]
+                except:
+                    print('Unrecognized file type:', file)
+                else:
+                    # Its an image
+                    if file_type == 'image':                
+                        try:
+                            img = cv2.imread(file)
                         except:
-                            print("Could not load image: "+ name)
-                        
+                            print('Bad file', file)   
+                        else:
+                            img = torch.from_numpy(img).to('cuda')
+                            img = img.permute(2,0,1)
+                            kpss = self.detect(img, input_size = (640, 640), max_num=1, metric='default')
+                            ret = []
+                            for i in range(kpss.shape[0]):
+                                if kpss is not None:
+                                    face_kps = kpss[i]
+
+                                face_emb, img_out = self.recognize(img, face_kps)
+                                ret.append([face_kps, face_emb, img_out])
+
+                            if ret:
+                                crop = cv2.cvtColor(ret[0][2].cpu().numpy(), cv2.COLOR_BGR2RGB)            
+                                crop = cv2.resize( crop, (82, 82))
+                                faces.append([crop, ret[0][1]])
+
+            shift_i_len = len(self.source_faces)
+            
+            # Add faces[] images to buttons
+            for i in range(len(faces)):   
+                new_source_face = self.source_face.copy()
+                self.source_faces.append(new_source_face)
                 
-                shift_i_len = len(self.source_faces)
+                shift_i = i+ shift_i_len
+            
+                self.source_faces[shift_i]["Image"] = ImageTk.PhotoImage(image=Image.fromarray(faces[i][0]))
+                self.source_faces[shift_i]["Embedding"] = faces[i][1]
+                self.source_faces[shift_i]["TKButton"] = tk.Button(self.source_faces_canvas, self.inactive_button_style, image= self.source_faces[shift_i]["Image"], height = 86, width = 86)
+                self.source_faces[shift_i]["ButtonState"] = False
                 
-                # Add faces[] images to buttons
-                for i in range(len(faces)):   
-                    new_source_face = self.source_face.copy()
-                    self.source_faces.append(new_source_face)
-                    
-                    shift_i = i+ shift_i_len
+                self.source_faces[shift_i]["TKButton"].bind("<ButtonRelease-1>", lambda event, arg=shift_i: self.toggle_source_faces_buttons_state(event, arg))
+                self.source_faces[shift_i]["TKButton"].bind("<Shift-ButtonRelease-1>", lambda event, arg=shift_i: self.toggle_source_faces_buttons_state_shift(event, arg))
+                self.source_faces[shift_i]["TKButton"].bind("<MouseWheel>", self.source_faces_mouse_wheel)
                 
-                    self.source_faces[shift_i]["Image"] = ImageTk.PhotoImage(image=Image.fromarray(faces[i][0]))
-                    self.source_faces[shift_i]["Embedding"] = faces[i][1]
-                    self.source_faces[shift_i]["TKButton"] = tk.Button(self.source_faces_canvas, self.inactive_button_style, image= self.source_faces[shift_i]["Image"], height = 86, width = 86)
-                    self.source_faces[shift_i]["ButtonState"] = False
-                    
-                    self.source_faces[shift_i]["TKButton"].bind("<ButtonRelease-1>", lambda event, arg=shift_i: self.toggle_source_faces_buttons_state(event, arg))
-                    self.source_faces[shift_i]["TKButton"].bind("<Shift-ButtonRelease-1>", lambda event, arg=shift_i: self.toggle_source_faces_buttons_state_shift(event, arg))
-                    self.source_faces[shift_i]["TKButton"].bind("<MouseWheel>", self.source_faces_mouse_wheel)
-                    
-                    self.source_faces_canvas.create_window(((shift_i_len//4)+i+1)*92,8, window = self.source_faces[shift_i]["TKButton"],anchor='nw')
-                    
-               
-                self.source_faces_canvas.configure(scrollregion = self.source_faces_canvas.bbox("all"))
-                self.source_faces_canvas.xview_moveto(0)
-                
-                # send over source faces embeddings
-                self.add_action("source_embeddings", self.source_faces)
+                self.source_faces_canvas.create_window(((shift_i_len//4)+i+1)*92,8, window = self.source_faces[shift_i]["TKButton"],anchor='nw')
+
+            self.source_faces_canvas.configure(scrollregion = self.source_faces_canvas.bbox("all"))
+            self.source_faces_canvas.xview_moveto(0)
         
     def find_faces(self, scope):
         try:
-            ret = self.faceapp_model.get(self.video_image, max_num=10)
+            img = torch.from_numpy(self.video_image).to('cuda')
+            img = img.permute(2,0,1)
+            kpss = self.detect(img, input_size = (640, 640), max_num=10, metric='default')
+            ret = []
+            for i in range(kpss.shape[0]):
+                if kpss is not None:
+                    face_kps = kpss[i]
+
+                face_emb, img_out = self.recognize(img, face_kps)
+                ret.append([face_kps, face_emb, img_out])            
+
         except Exception:
             print(" No video selected")
-        else:    
-            threshold = self.parameters["ThresholdAmount"][0]/100.0
-            if self.parameters["ThresholdState"]:
-                threshold = 2.0      
         
-        
-            # Find all faces and add to faces[]
+        else:   
+            # Find all faces and add to target_faces[]
             if ret:
+                # Apply threshold tolerence
+                threshhold = self.parameters["ThresholdAmount"][0]/100.0
+                
+                if self.parameters["ThresholdState"]:
+                    threshhold = 0.0           
+
                 # Loop thgouh all faces in video frame
-                for i in range(len(ret)):
-                    # Create a frame for each face
-                    # 128 transforms
-                    ratio = 1.0
-                    diff_x = 8.0*ratio
-                    dst = self.arcface_dst * ratio
-                    dst[:,0] += diff_x
-                    tform = trans.SimilarityTransform()
-                    tform.estimate(ret[i].kps, dst)
-                    M128 = tform.params[0:2, :]  
-                    IM128 = cv2.invertAffineTransform(M128)
-                    
-                    orig_bbox = cv2.transform(np.array([[[0,0], [0,128], [128,0], [128,128]]]), np.array(IM128))                       
-                
-                    left = floor(min(orig_bbox[0][0][0], orig_bbox[0][1][0] ))
-                    if left<0:
-                        left=0
-                    top = floor(min(orig_bbox[0][0][1], orig_bbox[0][2][1] ))
-                    if top<0: 
-                        top=0
-                    right = ceil(max(orig_bbox[0][2][0], orig_bbox[0][3][0] ))
-                    if right>self.video_image.shape[1]:
-                        right=self.video_image.shape[1]        
-                    bottom = ceil(max(orig_bbox[0][1][1], orig_bbox[0][3][1] ))
-                    if bottom>self.video_image.shape[0]:
-                        bottom=self.video_image.shape[0]
-
-                    y_diff = bottom-top
-                    x_diff = right-left
-                
-                    crop = self.video_image[int(top):int(bottom),int(left):int(right)]#y,x
-                    
-                    if y_diff > x_diff:
-                        padding = int((y_diff - x_diff) / 2)
-                        crop = cv2.copyMakeBorder( crop, 0, 0, padding, padding, cv2.BORDER_CONSTANT)
-                    else:
-                        padding = int((x_diff - y_diff) / 2)
-                        crop = cv2.copyMakeBorder( crop, padding, padding, 0, 0, cv2.BORDER_CONSTANT )
-                    crop = cv2.resize( crop, (82, 82))
-                    
-
-                    
+                for face in ret:
                     found = False
-                    # old code for doing averages on the taget
-                    # Test for existing simularities
-                    # for j in range(len(self.target_faces)):
-                        # sim = self.findCosineDistance(ret[i].embedding, self.target_faces[j]["Embedding"])
-                        # if sim<threshold:
-                            # found = True
-                            
-                            
-                            # self.target_faces[j]["Embedding"] = self.target_faces[j]["Embedding"]*self.target_faces[j]["EmbeddingNumber"] + ret[i].embedding
-                            
-                            # self.target_faces[j]["EmbeddingNumber"] += 1
-                            # self.target_faces[j]["Embedding"] /=  self.target_faces[j]["EmbeddingNumber"]
-                        
+                    
+                    # Check if this face has already been found
+                    for emb in self.target_faces:
+                        if self.findCosineDistance(emb['Embedding'], face[1]) < threshhold:
+                            found = True
+                            break
                     
                     # If we dont find any existing simularities, it means that this is a new face and should be added to our found faces
                     if not found:
+                        crop = cv2.resize(face[2].cpu().numpy(), (82, 82))
+
                         new_target_face = self.target_face.copy()
                         self.target_faces.append(new_target_face)
                         last_index = len(self.target_faces)-1
@@ -875,7 +824,7 @@ class GUI(tk.Tk):
                         self.target_faces[last_index]["TKButton"].bind("<MouseWheel>", self.target_faces_mouse_wheel)
                         self.target_faces[last_index]["ButtonState"] = False           
                         self.target_faces[last_index]["Image"] = ImageTk.PhotoImage(image=Image.fromarray(crop))
-                        self.target_faces[last_index]["Embedding"] = ret[i].embedding
+                        self.target_faces[last_index]["Embedding"] = face[1]
                         self.target_faces[last_index]["EmbeddingNumber"] = 1
                         
                         # Add image to button
@@ -886,15 +835,10 @@ class GUI(tk.Tk):
 
                         self.found_faces_canvas.configure(scrollregion = self.found_faces_canvas.bbox("all")) 
 
-
     def clear_faces(self):
         self.target_faces = []
-
-
-
         self.found_faces_canvas.delete("all")    
-            
-            
+   
     # toggle the target faces button and make assignments        
     def toggle_found_faces_buttons_state(self, button):  
         # Turn all Target faces off
@@ -915,9 +859,6 @@ class GUI(tk.Tk):
         for i in range(len(self.target_faces[button]["SourceFaceAssignments"])):
             self.source_faces[self.target_faces[button]["SourceFaceAssignments"][i]]["ButtonState"] = True
             self.source_faces[self.target_faces[button]["SourceFaceAssignments"][i]]["TKButton"].config(self.button_highlight_style) 
-
-    
-
 
     def toggle_source_faces_buttons_state(self, event, button):  
         # jot down the current state of the button
@@ -958,9 +899,7 @@ class GUI(tk.Tk):
 
             self.add_action("target_faces", self.target_faces, True, False)
 
-  
     def toggle_source_faces_buttons_state_shift(self, event, button):  
-        
         # Set all Source Face buttons to False 
         for face in self.source_faces:      
             face["TKButton"].config(self.inactive_button_style)
@@ -973,7 +912,6 @@ class GUI(tk.Tk):
             if face["ButtonState"]:
                 face["TKButton"].config(self.button_highlight_style)
 
-            
         # If a target face is selected
         for tface in self.target_faces:
             if tface["ButtonState"]:
@@ -998,66 +936,91 @@ class GUI(tk.Tk):
                 
                 break
 
-            # else:
-                # self.source_faces[button]["TKButton"].config(self.inactive_button_style)
-
         self.add_action("target_faces", self.target_faces, True, False)
     
     def populate_target_videos(self):
+        # Recursively read all media files from directory
         directory =  self.json_dict["source videos"]
-
-        filenames = os.listdir(directory)        
+        filenames = [os.path.join(dirpath,f) for (dirpath, dirnames, filenames) in os.walk(directory) for f in filenames]         
         
         videos = []
-        images = []
+        images = []        
         self.target_media = []
         self.target_media_buttons = []
         self.target_media_canvas.delete("all")  
         
-        for name in filenames: 
-            media_file = os.path.join(directory, name)
-            media_object = cv2.imread(media_file)
-            
-            if media_object is not None:
-                image = cv2.cvtColor(media_object, cv2.COLOR_BGR2RGB)            
-                image = cv2.resize(image, (82, 82))
-                temp = [image, media_file]
-                images.append(temp)   
+        for file in filenames: # Does not include full path
+            # Guess File type based on extension
+            try:
+                file_type = mimetypes.guess_type(file)[0][:5]
+            except:
+                print('Unrecognized file type:', file)
+            else:
+                # Its an image
+                if file_type == 'image':
+                    try:
+                        image = cv2.imread(file)
+                        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                    except:
+                        print('Trouble reading file:', file)
+                    else: 
+                        ratio = float(image.shape[0]) / image.shape[1]
 
-            elif media_object is None:
-                media_object = cv2.VideoCapture(media_file)
-                
-                if media_object.isOpened():                   
-                    media_object.set(cv2.CAP_PROP_POS_FRAMES, int(media_object.get(cv2.CAP_PROP_FRAME_COUNT)/2))
-                    success, video_frame = media_object.read()
-                    
-                    if success:
-                        video_frame = cv2.cvtColor(video_frame, cv2.COLOR_BGR2RGB)   
-                        
-                        
-                        im_ratio = float(video_frame.shape[0]) / video_frame.shape[1]
-
-                        if im_ratio>1:
+                        if ratio>1:
                             new_height = 82
-                            new_width = int(new_height / im_ratio)
+                            new_width = int(new_height / ratio)
                         else:
                             new_width = 82
-                            new_height = int(new_width * im_ratio)
-                        det_scale = float(new_height) / video_frame.shape[0]
-                        video_frame = cv2.resize(video_frame, (new_width, new_height))
+                            new_height = int(new_width * ratio)
+                        
+                        det_scale = float(new_height) / image.shape[0]
+                        image = cv2.resize(image, (new_width, new_height))
                         
                         det_img = np.zeros( (82, 82, 3), dtype=np.uint8 )
-                        video_frame[:new_height, :new_width, :] = video_frame
-
-                        temp = [video_frame, media_file]
-                        videos.append(temp)
-                        media_object.release()
+                        image[:new_height, :new_width, :] = image
+                        images.append([image, file]) 
                 
-                else:
-                    print('Bad file:', media_file)
+                # Its a video
+                elif file_type == 'video':
+                    try:
+                        video = cv2.VideoCapture(file)
+                    except:
+                        print('Trouble reading file:', file)
+                    else:
+                        if video.isOpened(): 
+   
+                            # Grab a frame from the middle for a thumbnail
+                            video.set(cv2.CAP_PROP_POS_FRAMES, int(video.get(cv2.CAP_PROP_FRAME_COUNT)/2))
+                            success, video_frame = video.read()
+                            
+                            if success:
+                                video_frame = cv2.cvtColor(video_frame, cv2.COLOR_BGR2RGB)   
+
+                                ratio = float(video_frame.shape[0]) / video_frame.shape[1]
+
+                                if ratio>1:
+                                    new_height = 82
+                                    new_width = int(new_height / ratio)
+                                else:
+                                    new_width = 82
+                                    new_height = int(new_width * ratio)
+                                
+                                det_scale = float(new_height) / video_frame.shape[0]
+                                video_frame = cv2.resize(video_frame, (new_width, new_height))
+                                
+                                det_img = np.zeros( (82, 82, 3), dtype=np.uint8 )
+                                video_frame[:new_height, :new_width, :] = video_frame
+
+                                videos.append([video_frame, file])
+                                video.release()
+                            
+                            else:
+                                print('Trouble reading file:', file)
+                        else:
+                            print('Trouble opening file:', file)
+                
 
 
-        
         if self.actions['ImgVidMode'] == 1:
             for i in range(len(images)):
                 self.target_media_buttons.append(tk.Button(self.target_media_canvas, self.inactive_button_style, height = 86, width = 86))
@@ -1087,12 +1050,22 @@ class GUI(tk.Tk):
 
         if media_type == 'Videos':
             self.video_slider.set(0)
-            self.add_action("load_target_video", media_file, True)
+            self.video_length = []
+            self.add_action("load_target_video", media_file, False)
+            
 
         elif media_type == 'Images':
-            self.add_action("load_target_image", media_file, True)
+            self.add_action("load_target_image", media_file, False)
             self.image_file_name = os.path.splitext(os.path.basename(media_file))
-    
+            
+            # # find faces
+            # self.find_faces('current')
+            
+            # self.toggle_found_faces_buttons_state(0)
+            # # select source face
+            # # hit swap
+            
+        self.clear_faces()
         self.set_status(media_file) 
         for i in range(len(self.target_media_buttons)):
             self.target_media_buttons[i].config(self.inactive_button_style)
@@ -1104,8 +1077,7 @@ class GUI(tk.Tk):
         
         if self.play_video == True:
             self.toggle_play_video()
-        
-        self.clear_faces()
+
         
         # delete all markers
         for i in range(len(self.markers)):
@@ -1116,71 +1088,7 @@ class GUI(tk.Tk):
       
         self.stop_marker = []
         self.video_slider_canvas.delete(self.stop_image)
-        
-    # def load_target(self, button, media_file, media_type):
-        # self.video_loaded = True
-
-        # if media_type == 'Videos':
-            # self.video_slider.set(0)
-            # self.add_action("load_target_video", media_file, True)
-
-        # elif media_type == 'Images':
-            # self.add_action("load_target_image", media_file, True)
-            # self.image_file_name = os.path.splitext(os.path.basename(media_file))
     
-        # self.set_status(media_file) 
-        # for i in range(len(self.target_media_buttons)):
-            # self.target_media_buttons[i].config(self.inactive_button_style)
-        
-        # self.target_media_buttons[button].config(self.button_highlight_style)
-        
-        # if self.play_video == True:
-            # self.toggle_play_video()
-        
-        # self.clear_faces()
-        
-        # if self.actions['HoldFaceMode'] == 0:
-            # if self.actions['SwapFacesState'] == True:
-                # self.toggle_swapper()
-            
-        # elif self.actions['HoldFaceMode'] == 1:
-            # self.find_faces('nul')
-            
-            # print(self.target_faces)
-            # for i in range(len(self.target_faces)):
-                # self.target_faces[i]["ButtonState"] = True
-                # self.target_faces[i]["TKButton"].config(self.active_button_style)
-
-            # # if self.target_faces:
-                # # for face in self.target_faces:
-                    
-                    # # # Find the first target face that is highlighted
-                    # # if face["ButtonState"]:
-                        
-                        # # # Clear the assignments
-                        # # face["SourceFaceAssignments"] = []
-                        
-                        # # # If a source face is highlighted
-                        # # if self.source_faces[button]["ButtonState"]:
-                            # # # Append new assignment 
-                            # # face["SourceFaceAssignments"].append(button)
-                            # # face['AssignedEmbedding'] = self.source_faces[button]['Embedding']
-  
-
-            # # self.add_action("target_faces", self.target_faces, True, False)
-
-        # # delete all markers
-        # for i in range(len(self.markers)):
-            # self.video_slider_canvas.delete(self.markers[i]['icon_ref'])
-        
-        # self.markers = []
-        # self.add_action("markers", self.markers)
-      
-        # self.stop_marker = []
-        # self.video_slider_canvas.delete(self.stop_image)        
-        
-        
-            
     # @profile
     def set_image(self, image, requested):
         self.video_image = image[0]
@@ -1217,22 +1125,22 @@ class GUI(tk.Tk):
             padding=int((x1-x2)/2.0)
             image = cv2.copyMakeBorder( image, 0, 0, padding, padding, cv2.BORDER_CONSTANT) 
 
-        image = Image.fromarray(image)  
-        image = ImageTk.PhotoImage(image)
         if self.docked:
-            self.undock_video.configure(image='')
-            self.video.configure(image=image)
-            self.video.image = image
+            self.undock_video.configure(image='')            
+            image = Image.fromarray(image)  
+            self.video.image = ImageTk.PhotoImage(image)
+            self.video.configure(image=self.video.image)
+
         else:
-            self.video.configure(image='')
-            self.undock_video.configure(image=image)
-            self.undock_video.image = image
-            
-    
+            self.video.configure(image='')        
+            image = Image.fromarray(image)  
+            self.video.image = ImageTk.PhotoImage(image)
+            self.undock_video.configure(image=self.video.image)
+
     # @profile    
     def resize_image(self):
         
-        if np.any(self.video_image):
+        try:
             image = self.video_image
             if self.docked: 
                 x1 = float(self.video.winfo_width())
@@ -1273,6 +1181,8 @@ class GUI(tk.Tk):
                 self.video.configure(image='')
                 self.undock_video.configure(image=image)
                 self.undock_video.image = image
+        except:
+            pass
             
         
     # @profile
@@ -1362,6 +1272,7 @@ class GUI(tk.Tk):
 
         
     def set_video_slider_length(self, video_length):
+        self.video_length = video_length
         self.video_slider.configure(to=video_length)
 
     def set_slider_position(self, position):
@@ -1369,25 +1280,7 @@ class GUI(tk.Tk):
    
     def findCosineDistance(self, vector1, vector2):
 
-        # vec1 = vector1.flatten()
-        # vec2 = vector2.flatten()
-
-        # a = np.dot(vec1.T, vec2)
-        # b = np.dot(vec1.T, vec1)
-        # c = np.dot(vec2.T, vec2)
-                
-        # 1 - (a/(np.sqrt(b)*np.sqrt(c)))
-
         return 1 - np.dot(vector1, vector2)/(np.linalg.norm(vector1)*np.linalg.norm(vector2))
-
-
-    def CosineSimilarity(self, test_vec, source_vecs):
-
-        cos_dist = 0
-        for source_vec in source_vecs:
-            cos_dist += self.findCosineDistance(test_vec, source_vec)
-        return cos_dist/len(source_vecs)
-
 
 
     def toggle_play_video(self):
@@ -1433,10 +1326,7 @@ class GUI(tk.Tk):
             self.actions['SwapFacesButton'].config(self.active_button_style) 
 
         self.add_action("swap", self.actions['SwapFacesState'], True)
-        # if self.actions['ImgVidMode'] == 0:
-            # self.add_action('get_requested_video_frame', self.video_slider.get())
-        # elif self.actions['ImgVidMode'] == 1:
-            # self.add_action('get_requested_video_frame_parameters', None)
+
             
     def toggle_rec_video(self):
         if not self.play_video:
@@ -1999,9 +1889,9 @@ class GUI(tk.Tk):
         elif parameter == 'Threads':
             self.actions[button] = tk.Button(root, self.inactive_button_style, compound='left', image=self.actions[icon_holder], anchor='w')
             self.actions[button].bind("<MouseWheel>", self.change_threads_amount)  
-        elif parameter == 'VideoQuality':
-            self.actions[button] = tk.Button(root, self.inactive_button_style, compound='left', image=self.actions[icon_holder], anchor='w')
-            self.actions[button].bind("<MouseWheel>", self.change_video_quality) 
+        # elif parameter == 'VideoQuality':
+            # self.actions[button] = tk.Button(root, self.inactive_button_style, compound='left', image=self.actions[icon_holder], anchor='w')
+            # self.actions[button].bind("<MouseWheel>", self.change_video_quality) 
         elif parameter == 'PerfTest':
             self.actions[button] = tk.Button(root, self.inactive_button_style, compound='left', text=self.actions['PerfTestModes'][0], image=self.actions[icon_holder], anchor='w', command=lambda: self.toggle_perf_test())
 
@@ -2045,7 +1935,213 @@ class GUI(tk.Tk):
             self.CLIP_text.delete(0, tk.END)
             self.CLIP_text.insert(0, self.parameters['CLIPText'])
 
+    def detect(self, img, input_size, max_num=0, metric='default'):
+        # Resize image to fit within the input_size
+        im_ratio = torch.div(img.size()[1], img.size()[2])
+
+        model_ratio = float(input_size[1]) / input_size[0]
+        if im_ratio>model_ratio:
+            new_height = input_size[1]
+            new_width = int(new_height / im_ratio)
+        else:
+            new_width = input_size[0]
+            new_height = int(new_width * im_ratio)
+        det_scale = torch.div(new_height,  img.size()[1])
+
+        resize = v2.Resize((new_height, new_width), antialias=True)
+        img = resize(img)
+        img = img.permute(1,2,0)
+
+        det_img = torch.zeros((input_size[1], input_size[0], 3), dtype=torch.float32, device='cuda:0')
+        det_img[:new_height,:new_width,  :] = img
+
+        # Switch to BGR and normalize
+        det_img = det_img[:, :, [2,1,0]]
+        det_img = torch.sub(det_img, 127.5)
+        det_img = torch.div(det_img, 128.0)
+        det_img = det_img.permute(2, 0, 1) #3,128,128
+        
+        # Prepare data and find model parameters 
+        det_img = torch.unsqueeze(det_img, 0).contiguous()
+        input_name = self.detection_model.get_inputs()[0].name
+        
+        outputs = self.detection_model.get_outputs()
+        output_names = []
+        for o in outputs:
+            output_names.append(o.name)
+        
+        io_binding = self.detection_model.io_binding() 
+        io_binding.bind_input(name=input_name, device_type='cuda', device_id=0, element_type=np.float32,  shape=det_img.size(), buffer_ptr=det_img.data_ptr())
+        
+        for i in range(len(output_names)):
+            io_binding.bind_output(output_names[i], 'cuda') 
+        
+        # Sync and run model
+        syncvec = torch.empty((1,1), dtype=torch.float32, device='cuda:0')
+        syncvec = syncvec.cpu()        
+        self.detection_model.run_with_iobinding(io_binding)
+        
+        net_outs = io_binding.copy_outputs_to_cpu()
+
+        input_height = det_img.shape[2]
+        input_width = det_img.shape[3]
+        
+        fmc = 3
+        center_cache = {}
+        scores_list = []
+        bboxes_list = []
+        kpss_list = []
+        for idx, stride in enumerate([8, 16, 32]):
+            scores = net_outs[idx]
+            bbox_preds = net_outs[idx+fmc]
+            bbox_preds = bbox_preds * stride
+
+            kps_preds = net_outs[idx+fmc*2] * stride
+            height = input_height // stride
+            width = input_width // stride
+            K = height * width
+            key = (height, width, stride)
+            if key in center_cache:
+                anchor_centers = center_cache[key]
+            else:
+                anchor_centers = np.stack(np.mgrid[:height, :width][::-1], axis=-1).astype(np.float32)
+                anchor_centers = (anchor_centers * stride).reshape( (-1, 2) )
+                anchor_centers = np.stack([anchor_centers]*2, axis=1).reshape( (-1,2) )
+                if len(center_cache)<100:
+                    center_cache[key] = anchor_centers
             
+            pos_inds = np.where(scores>=0.5)[0]
+
+            x1 = anchor_centers[:, 0] - bbox_preds[:, 0]
+            y1 = anchor_centers[:, 1] - bbox_preds[:, 1]
+            x2 = anchor_centers[:, 0] + bbox_preds[:, 2]
+            y2 = anchor_centers[:, 1] + bbox_preds[:, 3]
+
+            bboxes = np.stack([x1, y1, x2, y2], axis=-1)  
+            
+            pos_scores = scores[pos_inds]
+            pos_bboxes = bboxes[pos_inds]
+            scores_list.append(pos_scores)
+            bboxes_list.append(pos_bboxes)
+
+            preds = []
+            for i in range(0, kps_preds.shape[1], 2):
+                px = anchor_centers[:, i%2] + kps_preds[:, i]
+                py = anchor_centers[:, i%2+1] + kps_preds[:, i+1]
+
+                preds.append(px)
+                preds.append(py)
+            kpss = np.stack(preds, axis=-1) 
+            #kpss = kps_preds
+            kpss = kpss.reshape( (kpss.shape[0], -1, 2) )
+            pos_kpss = kpss[pos_inds]
+            kpss_list.append(pos_kpss)
+
+        scores = np.vstack(scores_list)
+        scores_ravel = scores.ravel()
+        order = scores_ravel.argsort()[::-1]
+        
+        det_scale = det_scale.numpy()###
+        
+        bboxes = np.vstack(bboxes_list) / det_scale
+
+        kpss = np.vstack(kpss_list) / det_scale
+        pre_det = np.hstack((bboxes, scores)).astype(np.float32, copy=False)
+        pre_det = pre_det[order, :]
+        
+        dets = pre_det
+        thresh = 0.4
+        x1 = dets[:, 0]
+        y1 = dets[:, 1]
+        x2 = dets[:, 2]
+        y2 = dets[:, 3]
+        scoresb = dets[:, 4]
+
+        areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+        orderb = scoresb.argsort()[::-1]
+
+        keep = []
+        while orderb.size > 0:
+            i = orderb[0]
+            keep.append(i)
+            xx1 = np.maximum(x1[i], x1[orderb[1:]])
+            yy1 = np.maximum(y1[i], y1[orderb[1:]])
+            xx2 = np.minimum(x2[i], x2[orderb[1:]])
+            yy2 = np.minimum(y2[i], y2[orderb[1:]])
+
+            w = np.maximum(0.0, xx2 - xx1 + 1)
+            h = np.maximum(0.0, yy2 - yy1 + 1)
+
+            inter = w * h
+            ovr = inter / (areas[i] + areas[orderb[1:]] - inter)
+
+            inds = np.where(ovr <= thresh)[0]
+            orderb = orderb[inds + 1]        
+
+        det = pre_det[keep, :]
+
+        kpss = kpss[order,:,:]
+        kpss = kpss[keep,:,:]
+
+        if max_num > 0 and det.shape[0] > max_num:
+            area = (det[:, 2] - det[:, 0]) * (det[:, 3] -
+                                                    det[:, 1])
+            det_img_center = det_img.shape[0] // 2, det_img.shape[1] // 2
+            offsets = np.vstack([
+                (det[:, 0] + det[:, 2]) / 2 - det_img_center[1],
+                (det[:, 1] + det[:, 3]) / 2 - det_img_center[0]
+            ])
+            offset_dist_squared = np.sum(np.power(offsets, 2.0), 0)
+
+            values = area - offset_dist_squared * 2.0  # some extra weight on the centering
+            bindex = np.argsort(values)[::-1]  # some extra weight on the centering
+            bindex = bindex[0:max_num]
+
+            if kpss is not None:
+                kpss = kpss[bindex, :]
+                
+        return kpss   
+
+    def recognize(self, img, face_kps):
+        # Find transform 
+        tform = trans.SimilarityTransform()
+        tform.estimate(face_kps, self.arcface_dst)
+
+        # Transform
+        img = v2.functional.affine(img, tform.rotation*57.2958, (tform.translation[0], tform.translation[1]) , tform.scale, 0, center = (0,0) ) 
+        img = v2.functional.crop(img, 0,0, 112, 112)
+
+        # Switch to BGR and normalize
+        img = img.permute(1,2,0) #112,112,3     
+        img_out = img
+        
+        img = img[:, :, [2,1,0]]
+        img = torch.sub(img, 127.5)
+        img = torch.div(img, 127.5)   
+        img = img.permute(2, 0, 1) #3,112,112
+        
+        # Prepare data and find model parameters        
+        img = torch.unsqueeze(img, 0).contiguous()     
+        input_name = self.recognition_model.get_inputs()[0].name
+        
+        outputs = self.recognition_model.get_outputs()
+        output_names = []
+        for o in outputs:
+            output_names.append(o.name)
+        
+        io_binding = self.recognition_model.io_binding() 
+        io_binding.bind_input(name=input_name, device_type='cuda', device_id=0, element_type=np.float32,  shape=img.size(), buffer_ptr=img.data_ptr())
+
+        for i in range(len(output_names)):
+            io_binding.bind_output(output_names[i], 'cuda') 
+        
+        # Sync and run model
+        syncvec = torch.empty((1,1), dtype=torch.float32, device='cuda:0')
+        syncvec = syncvec.cpu()
+        self.recognition_model.run_with_iobinding(io_binding)
+
+        # Return embedding
+        return np.array(io_binding.copy_outputs_to_cpu()).flatten(), img_out               
 
     
 

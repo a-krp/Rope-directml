@@ -191,14 +191,6 @@ class CLIPDenseBase(nn.Module):
 
             return x, activations, affinities
 
-    def sample_prompts(self, words, prompt_list=None):
-
-        prompt_list = prompt_list if prompt_list is not None else self.prompt_list
-
-        prompt_indices = torch.multinomial(torch.ones(len(prompt_list)), len(words), replacement=True)
-        prompts = [prompt_list[i] for i in prompt_indices]
-        return [promt.format(w) for promt, w in zip(prompts, words)]
-
     def get_cond_vec(self, conditional, batch_size):
         # compute conditional from a single string
         if conditional is not None and type(conditional) == str:
@@ -243,27 +235,7 @@ class CLIPDenseBase(nn.Module):
             return cond
 
 
-def clip_load_untrained(version):
-    assert version == 'ViT-B/16'
-    from clip.model import CLIP
-    from clip.clip import _MODELS, _download
-    model = torch.jit.load(_download(_MODELS['ViT-B/16'])).eval()
-    state_dict = model.state_dict()
-
-    vision_width = state_dict["visual.conv1.weight"].shape[0]
-    vision_layers = len([k for k in state_dict.keys() if k.startswith("visual.") and k.endswith(".attn.in_proj_weight")])
-    vision_patch_size = state_dict["visual.conv1.weight"].shape[-1]
-    grid_size = round((state_dict["visual.positional_embedding"].shape[0] - 1) ** 0.5)
-    image_resolution = vision_patch_size * grid_size
-    embed_dim = state_dict["text_projection"].shape[1]
-    context_length = state_dict["positional_embedding"].shape[0]
-    vocab_size = state_dict["token_embedding.weight"].shape[0]
-    transformer_width = state_dict["ln_final.weight"].shape[0]
-    transformer_heads = transformer_width // 64
-    transformer_layers = len(set(k.split(".")[2] for k in state_dict if k.startswith(f"transformer.resblocks")))
-
-    return CLIP(embed_dim, image_resolution, vision_layers, vision_width, vision_patch_size, 
-        context_length, vocab_size, transformer_width, transformer_heads, transformer_layers)    
+  
 
 
 class CLIPDensePredT(CLIPDenseBase):
@@ -407,132 +379,3 @@ class CLIPDensePredT(CLIPDenseBase):
 
 
 
-class CLIPDensePredTMasked(CLIPDensePredT):
-
-    def __init__(self, version='ViT-B/32', extract_layers=(3, 6, 9), cond_layer=0, reduce_dim=128, n_heads=4, 
-                 prompt='fixed', extra_blocks=0, reduce_cond=None, fix_shift=False, learn_trans_conv_only=False, 
-                 refine=None, limit_to_clip_only=False, upsample=False, add_calibration=False, n_tokens=None):
-
-        super().__init__(version=version, extract_layers=extract_layers, cond_layer=cond_layer, reduce_dim=reduce_dim, 
-                         n_heads=n_heads, prompt=prompt, extra_blocks=extra_blocks, reduce_cond=reduce_cond, 
-                         fix_shift=fix_shift, learn_trans_conv_only=learn_trans_conv_only,
-                         limit_to_clip_only=limit_to_clip_only, upsample=upsample, add_calibration=add_calibration,
-                         n_tokens=n_tokens)
-
-    def visual_forward_masked(self, img_s, seg_s):
-        return super().visual_forward(img_s, mask=('all', 'cls_token', seg_s))
-
-    def forward(self, img_q, cond_or_img_s, seg_s=None, return_features=False):
-
-        if seg_s is None:
-            cond = cond_or_img_s
-        else:
-            img_s = cond_or_img_s
-
-            with torch.no_grad():
-                cond, _, _ = self.visual_forward_masked(img_s, seg_s)
-
-        return super().forward(img_q, cond, return_features=return_features)
-
-
-
-class CLIPDenseBaseline(CLIPDenseBase):
-
-    def __init__(self, version='ViT-B/32', cond_layer=0, 
-                extract_layer=9, reduce_dim=128, reduce2_dim=None, prompt='fixed', 
-                 reduce_cond=None, limit_to_clip_only=False, n_tokens=None):
-        
-        super().__init__(version, reduce_cond, reduce_dim, prompt, n_tokens)
-        device = 'cpu'
-
-        # self.cond_layer = cond_layer
-        self.extract_layer = extract_layer
-        self.limit_to_clip_only = limit_to_clip_only
-        self.shift_vector = None
-
-        self.token_shape = {'ViT-B/32': (7, 7), 'ViT-B/16': (14, 14)}[version]
-        
-        assert reduce2_dim is not None
-
-        self.reduce2 = nn.Sequential(
-            nn.Linear(reduce_dim, reduce2_dim),
-            nn.ReLU(),
-            nn.Linear(reduce2_dim, reduce_dim)
-        )
-        
-        trans_conv_ks = {'ViT-B/32': (32, 32), 'ViT-B/16': (16, 16)}[version]
-        self.trans_conv = nn.ConvTranspose2d(reduce_dim, 1, trans_conv_ks, stride=trans_conv_ks)
-
-
-    def forward(self, inp_image, conditional=None, return_features=False):
-
-        inp_image = inp_image.to(self.model.positional_embedding.device)
-
-        # x_inp = normalize(inp_image)
-        x_inp = inp_image
-
-        bs, dev = inp_image.shape[0], x_inp.device
-
-        cond = self.get_cond_vec(conditional, bs)
-
-        visual_q, activations, affinities = self.visual_forward(x_inp, extract_layers=[self.extract_layer])
-
-        a = activations[0]
-        a = self.reduce(a)
-        a = self.film_mul(cond) * a + self.film_add(cond)
-
-        if self.reduce2 is not None:
-            a = self.reduce2(a)
-
-        # the original model would execute a transformer block here
-
-        a = a[1:].permute(1, 2, 0) # rm cls token and -> BS, Feats, Tokens
-
-        size = int(math.sqrt(a.shape[2]))
-
-        a = a.view(bs, a.shape[1], size, size)
-        a = self.trans_conv(a)
-
-        if return_features:
-            return a, visual_q, cond, activations
-        else:
-            return a,
-
-
-class CLIPSegMultiLabel(nn.Module):
-
-    def __init__(self, model) -> None:
-        super().__init__()
-
-        from third_party.JoEm.data_loader import get_seen_idx, get_unseen_idx, VOC
-
-        self.pascal_classes = VOC
-
-        from models.clipseg import CLIPDensePredT
-        from general_utils import load_model
-        # self.clipseg = load_model('rd64-vit16-neg0.2-phrasecut', strict=False)
-        self.clipseg = load_model(model, strict=False)
-        
-        self.clipseg.eval()
-
-    def forward(self, x):
-
-        bs = x.shape[0]
-        out = torch.ones(21, bs, 352, 352).to(x.device) * -10
-
-        for class_id, class_name in enumerate(self.pascal_classes):
-        
-            fac = 3 if class_name == 'background' else 1
-
-            with torch.no_grad():
-                pred = torch.sigmoid(self.clipseg(x, class_name)[0][:,0]) * fac
-
-            out[class_id] += pred
-
-
-        out = out.permute(1, 0, 2, 3)
-
-        return out
-
-        # construct output tensor
-                    

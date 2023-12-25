@@ -1,4 +1,4 @@
-![image](https://github.com/Hillobar/Rope/assets/63615199/3003777e-1477-4c39-9749-cf2314287cad)
+![Screenshot 2023-12-22 211725](https://github.com/Hillobar/Rope/assets/63615199/97a57957-fb30-4329-b8f6-adbfa96203ab)
 
 Rope implements the insightface inswapper_128 model with a helpful GUI.
 ### [Discord](https://discord.gg/EcdVAFJzqp)
@@ -7,13 +7,30 @@ Rope implements the insightface inswapper_128 model with a helpful GUI.
 
 ### [Wiki](https://github.com/Hillobar/Rope/wiki)
 
-### ${{\color{Goldenrod}{\textsf{Last Updated 2023-12-04 19:00 PST}}}}$ ###
+### [Demo Video](https://www.youtube.com/watch?v=4Y4U0TZ8cWY)
+
+### ${{\color{Goldenrod}{\textsf{Last Updated 2023-12-25 11:02 PST}}}}$ ###
+note: you need to download the latest GFPGAN model for Ruby. Link is in the wiki
 
 ### Features: ###
 * Incredible features and fast workflow
 * High performance
 * Real-time video player
 * Helpful functions
+* Lightning speed face swapping with all the features
+* Upscalers
+* Likeness modifiers
+* Orientation management
+* Masks: borders, differentials, auto occlusion, face parsers, text-based masking - all with strength adjustments and blending settings
+* Mask view to evaluate masks directly
+* Source face merging and saving
+* Swap images or videos
+* Auto save filename generation
+* Dock/Undock the video player
+* Real-time player
+* Segment recording
+* Fine tune your video ahead of time by creating image setting markers at specific frames.
+* Lightening fast!
 * **AMD GPU SUPPORT** (1 thread only)
 ### How to Install
 * Copy Github files to a local directory
@@ -33,56 +50,29 @@ Rope implements the insightface inswapper_128 model with a helpful GUI.
   * Install FFMPEG
 * Double-click on Rope.bat!
 
-### (2023-11-17) Changelog for Rope - Sapphire: ###
-**Note: Please check the wiki for installation and link to the new models file**
-- Images! In addition to videos, use Rope to swap images. Seamlessly integrated into the current interface.
-- Timeline markers. Add markers to the timeline that capture the current settings at a specific frame. When playing back or recording, markers control the options when the frame is reached. Add as many markers as you need!
-- Iterations. Apply the swapper model multiple times to a face. It seems to increase likeliness if used carefully.
-- Orientation. Sometimes faces are at a bad orientation, like laying down or upside-down. The face detector has problems with this, so Rope now has an option to tell the detector which way the face is oriented. It is also markerable, so you can set markers for it per frame!
-- Tool tips on (almost) everything. Tips are in the bottom pane.
-- Bug fixes and refactoring
 
-### (2023-11-18) Bug Fixes for Sapphire - Shard: ###
-- (fixed) saving the same image multiple times in a row overwrites it. the time is appended when the image is loaded, not saved, so the time is always the same
-- (fixed) cf is returning weird colors, similar to when the rgm bgr stuff was messed up. try swapping rgp before netering cf
-- (fixed) GFPGAN fp16 might be causing too much harm (going back to original)
-- (fixed) the orientation feature might not be unorienting
-- (fixed) bug (I hope :D) : When clicking on a registered face name (the one of the left) to swap, on the previous version, clicking back to the same face name would delete the choice and unswap the face. Now it's just blocked and I can't "unswap" (unselect) the face. I'm force to select a face or just close and restart the soft.
-- (fixed) update text for all the parser features
-- (fixed) "Switch from one timeline marker to another doesn't properly show the correct features configured. Switch to the next frame (and back the previous one is working too) will fix it and show the correct configuration actually configured on the frame."
-- (fixed) update mask tooltip
-- (fixed) Btw accidentially scrolling Strength below 100% crashed Rope now the third time when CF is enabled. Haven't seen this with GFPGAN yet. I can screenshot the console error if that helps...
-- (new) Added Mask view button, moved mask blur to button above mask view
-- (new) MouthParser scrolls in negative direction to a)only mask the inside of the mouth, and b) grow the inside mouth mask as the amount increases
-- (fixed) GFPGAN and Codeformer will give better results now, especially with details around the eyes and mouth. 
-- (fixed) in some cases, pixel values will be > 255
-- (new) added undock button to image view
-- (new) 'Strength' now has an on/off state
-- (fixed) intermittent play bug
-- (new) Click the mouse on the playback screen to control play/pause
-- (new) Keyboard control with wasd and space 
-- (new) Stop Marker. Sets a frame that will stop the video playing/recording
+### Updates for Rope-Ruby: ###
+* Almost double the performance of previous Rope! Twice as fast! Half the time! Most of the effort for Ruby focuses on huge performance gains. Enjoy the speed!
+* Much faster GFPGAN
+* Occluder mask size can now be adjusted
+* Experimental features added to make adjustments to face swap region placement and face scale.
 
-### (2023-12-02) Bug Fixes for Sapphire - Shard: ###
-- (new) Added performance testing button. Turn on to report some stats in the console. Stats during threaded Play will be jumbled.
-- (fixed) Tooltip fixes
-- (fixed) Fixed bad Rope behavior when losing focus and returning  
-- (fixed) Fixed crashing when using WASD on images
-- (fixed) GFPGAN and Codeformer are now working correctly. This required adding another detection model to these enhancers, so performance is slightly worse now using CF and GFPGAN but the quality is better.
-- (new) Rope can now undock and redock
-- (new) Rope will remember window positions and sizes between sessions, for both docked and undocked views
-- (fixed) Fixed multiple embedding selection bug
-- (fixed) Recording with one thread works again
+### Changelog for 2023-12-25 08:56 PST: ###
+Files changed: Coordinator.py, Dicts.py, GUI.py, VideoManager.py. DL new GPEN models
+* (fixed) Adjusted the Brdr default settings to fix some blending lines
+* (fixed) Video loading errors addressed 
+* (feature) Read target videos and images, and source faces from subfolders
+* (fixed) Low resolution videos no longer results in partial face swaps
+* (feature) Added GPEN 256 and GPEN 512
+* (feature) Added manual color correction
+* (fixed) Using 'wasd' can no longer go out of bounds
 
-- ### (2023-12-04) Bug Fixes for Sapphire - Shard: ###
-- (fixed) CV_64F error related to passing float64 to opencv
-- (fixed) Indexerror error related to differences in detection performance between resnet50 and Retinaface
+### Changelog for 12/25 11:02 PST: ###
+* (fixed) Couple of bugs related to GPEN. Redownload Coordinator and VideoManger
 
 ### Known Bugs: ###
-- Recording starts on the next frame. It's an issue with how the opencv lib is used. In the future, I hope to get around this with another lib or just working directly with ffmpeg.
-- Toggling between img/vid leaves a residual frame in the window. I'll clean this up in the future
-- Unfortunately recording is bugged with Threads = 1. I need to change some logic.
 - When using Markers, the frames before the first marker will use parameters from the the last settings in your options. Not sure if it is a true bug, but best way to deal with this is to create a marker at the first frame.
+- Starting a mode for the first time while playing will crash Rope. Due to the new performance architecture, this will not be possible. The first time you turn on a model, the video should not be playing.
 
 ### Performance:  ###
 Machine: 3090Ti (24GB), i5-13600K
@@ -90,18 +80,19 @@ Machine: 3090Ti (24GB), i5-13600K
 <img src="https://github.com/Hillobar/Rope/assets/63615199/3e3505db-bc76-48df-b8ac-1e7e86c8d751" width="200">
 
 File: benchmark/target-1080p.mp4, 2048x1080, 269 frames, 25 fps, 10s
-Rendering tiem in seconds:
-| Option | Crystal | Sapphire |
-| --- | --- | --- |
-| Only Swap | 7.3 | 7.5 |
-| Swap+GFPGAN | 10.7 | 11.0 |
-| Swap+Codeformer | 12.4 | 13.5 |
-| Swap+one word CLIP | 10.4 | 11.2 |
-| Swap+Occluder | 7.8 | 7.8 |
-| Swap+MouthParser | 13.9 | 12.1 |
+Rendering time in seconds:
+| Option | Crystal | Sapphire | Ruby |
+| --- | --- | --- | --- |
+| Only Swap | 7.3 | 7.5 | 4.4 |
+| Swap+GFPGAN | 10.7 | 11.0 | 9.0 |
+| Swap+Codeformer | 12.4 | 13.5 | 11.1 |
+| Swap+one word CLIP | 10.4 | 11.2 | 9.1 |
+| Swap+Occluder | 7.8 | 7.8 | 4.4 |
+| Swap+MouthParser | 13.9 | 12.1 | 5.0 |
 
 ### Preview (from Rope-Crystal): ###
-![image](https://github.com/Hillobar/Rope/assets/63615199/fda0c05f-72a6-4935-a882-dc6d17cfc014)
+![Screenshot 2023-12-22 212639](https://github.com/Hillobar/Rope/assets/63615199/384fd63a-b870-4714-a137-d27e31560433)
+
 
 ### Disclaimer: ###
 Rope is a personal project that I'm making available to the community as a thank you for all of the contributors ahead of me.
